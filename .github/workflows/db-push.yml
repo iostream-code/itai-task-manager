@@ -1,0 +1,46 @@
+name: Sync Database Schema
+
+# Jalan otomatis setiap ada push ke branch main, TAPI hanya kalau ada
+# perubahan di prisma/schema.prisma. Push yang cuma mengubah kode
+# frontend/API tidak akan memicu workflow ini (hemat waktu CI).
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "prisma/schema.prisma"
+  # Tombol "Run workflow" manual di tab Actions GitHub, untuk jaga-jaga
+  # kalau perlu re-run tanpa harus push commit baru.
+  workflow_dispatch:
+
+jobs:
+  db-push:
+    name: Push schema ke database production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependency
+        # --legacy-peer-deps wajib karena next-auth@beta belum resmi
+        # menyatakan dukungan peer-dependency untuk Next.js 16.
+        run: npm install --legacy-peer-deps
+
+      - name: Push schema ke database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        # --accept-data-loss WAJIB karena workflow ini berjalan non-interactive
+        # (tidak ada prompt yes/no seperti di terminal lokal). Ini berarti
+        # perubahan yang sifatnya destruktif (hapus kolom berisi data, dst)
+        # akan DIJALANKAN LANGSUNG tanpa konfirmasi tambahan.
+        #
+        # PENTING: kalau project ini sudah punya data production yang
+        # penting, pertimbangkan ulang apakah db push otomatis masih cocok,
+        # atau beralih ke `prisma migrate deploy` yang berbasis file migrasi
+        # dan tidak butuh flag ini.
+        run: npx prisma db push --accept-data-loss --skip-generate

@@ -142,9 +142,10 @@ Ini membuka GUI di browser untuk melihat & edit isi database secara visual.
    script `build` di `package.json` (`prisma generate && next build`), jadi
    tidak perlu setting tambahan untuk ini.
 
-7. **Push schema ke database production** sebelum (atau setelah) deploy
-   pertama. Jalankan dari komputer lokal dengan `DATABASE_URL` diarahkan ke
-   database production:
+7. **Push schema awal ke database production**, sebelum deploy pertama kali
+   (setelah ini, perubahan schema lanjutan akan otomatis lewat GitHub Action
+   — lihat poin 9). Jalankan dari komputer lokal dengan `DATABASE_URL`
+   diarahkan ke database production:
    ```bash
    DATABASE_URL="<connection string dari Vercel>" npx prisma db push
    ```
@@ -153,10 +154,49 @@ Ini membuka GUI di browser untuk melihat & edit isi database secara visual.
    di-hash bcrypt).
 
 8. **Deploy.** Klik Deploy di Vercel (atau push ke branch yang terhubung).
+   Vercel otomatis re-deploy setiap ada push ke branch production — ini
+   namanya Git Integration, aktif otomatis sejak project di-import dari
+   GitHub.
+
+9. **Setup GitHub Secret untuk auto db-push.** Project ini punya GitHub
+   Action (`.github/workflows/db-push.yml`) yang otomatis menjalankan
+   `prisma db push` ke database production setiap ada push ke `main` YANG
+   mengubah `prisma/schema.prisma`. Supaya workflow ini bisa konek ke
+   database, tambahkan secret di GitHub:
+   - Buka repo → **Settings → Secrets and variables → Actions**
+   - **New repository secret** → Name: `DATABASE_URL`, Value: connection
+     string yang SAMA dengan yang dipakai di Vercel
+   - Tanpa secret ini, workflow akan gagal (`DATABASE_URL` kosong)
+
+   > ⚠️ **Catatan penting soal `db push` otomatis**: command ini langsung
+   > menyamakan struktur database dengan `schema.prisma`, dan dijalankan
+   > dengan flag `--accept-data-loss` (wajib untuk mode non-interactive di
+   > CI). Artinya perubahan yang sifatnya destruktif (hapus kolom yang masih
+   > ada datanya, dst) akan **langsung dieksekusi tanpa konfirmasi**. Ini
+   > cocok untuk tahap development, tapi kalau project sudah punya data
+   > production yang penting, pertimbangkan beralih ke `prisma migrate
+   > deploy` (berbasis file migrasi, ada riwayat & lebih aman) dan hapus
+   > workflow auto db-push ini.
 
 > Catatan: jangan commit file `.env` ke git (sudah di-ignore lewat
 > `.gitignore`). Semua secret (DATABASE_URL, AUTH_SECRET) cukup disimpan di
-> Environment Variables Vercel, bukan di kode.
+> Environment Variables Vercel & GitHub Secrets, bukan di kode.
+
+---
+
+### Checklist tiap kali mengubah `prisma/schema.prisma`
+
+- [ ] Edit `prisma/schema.prisma` sesuai kebutuhan
+- [ ] Jalankan `npx prisma generate` di lokal supaya tipe TypeScript ikut update
+- [ ] Jalankan `npm run db:push` ke database **lokal** dulu, test fitur barunya
+- [ ] Commit & push ke `main` (atau merge PR ke `main`)
+- [ ] GitHub Action `Sync Database Schema` otomatis jalan → push schema ke
+      database **production**. Cek statusnya di tab **Actions** repo GitHub
+- [ ] Vercel otomatis build & deploy kode barunya (terpisah dari proses di
+      atas, tapi biasanya jalan bersamaan)
+- [ ] Kalau ada env var BARU yang dipakai kode (bukan cuma schema), tambahkan
+      manual juga di Vercel **Settings → Environment Variables** — ini TIDAK
+      otomatis ikut ter-deploy hanya dari push GitHub
 
 ---
 
@@ -164,6 +204,8 @@ Ini membuka GUI di browser untuk melihat & edit isi database secara visual.
 
 ```
 task-manager/
+├── .github/workflows/db-push.yml  # GitHub Action: auto `prisma db push` ke
+│                                   #   production tiap schema.prisma berubah
 ├── auth.ts                  # Konfigurasi Auth.js v5 (Credentials provider)
 ├── proxy.ts                 # Pengganti middleware.ts (Next.js 16) — redirect
 │                             #   ke /login kalau belum auth
