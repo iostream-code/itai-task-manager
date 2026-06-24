@@ -215,10 +215,17 @@ function TaskLine({ task }: { task: Task }) {
   metaParts.push(STATUS_LABEL[task.status]);
   if (dueDateText) metaParts.push(dueDateText);
 
+  const hasDescription = task.description && task.description.trim() !== "";
+
   return (
     <li className="leading-snug">
-      - {task.title} -{" "}
-      <span className="font-semibold">[ {metaParts.join(" | ")} ]</span>
+      <p>
+        - {task.title} -{" "}
+        <span className="font-semibold">[ {metaParts.join(" | ")} ]</span>
+      </p>
+      {hasDescription && (
+        <p className="italic text-slate-500 text-xs pl-3 mt-0.5">{task.description}</p>
+      )}
     </li>
   );
 }

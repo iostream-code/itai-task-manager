@@ -72,6 +72,14 @@ export function formatTaskLine(task: Task): string {
   return `${task.title} - *[ ${metaParts.join(" | ")} ]*`;
 }
 
+// Baris deskripsi tambahan di bawah formatTaskLine, HANYA dipanggil kalau
+// task.description ada isinya (pemanggil yang mengecek null/kosong).
+// Diberi indentasi kecil (spasi) supaya terlihat sebagai sub-baris dari
+// task di atasnya, bukan task baru.
+export function formatTaskDescriptionLine(description: string): string {
+  return `  _${description.trim()}_`;
+}
+
 // Hitung ringkasan jumlah task per status, dipakai di header report.
 export function summarizeStatusCounts(tasks: Task[]): Record<Status, number> {
   return tasks.reduce(
@@ -79,14 +87,14 @@ export function summarizeStatusCounts(tasks: Task[]): Record<Status, number> {
       acc[t.status] += 1;
       return acc;
     },
-    { TODO: 0, IN_PROGRESS: 0, DONE: 0 } as Record<Status, number>
+    { TODO: 0, IN_PROGRESS: 0, DONE: 0 } as Record<Status, number>,
   );
 }
 
 // Generate teks lengkap, format WhatsApp (*bold*), siap di-copy & paste.
 export function generateWhatsAppReportText(
   projectName: string,
-  tasks: Task[]
+  tasks: Task[],
 ): string {
   const counts = summarizeStatusCounts(tasks);
   const groups = groupTasksByAssignee(tasks);
@@ -102,7 +110,7 @@ export function generateWhatsAppReportText(
   lines.push(today);
   lines.push("");
   lines.push(
-    `Total: ${tasks.length} task (To Do: ${counts.TODO}, In Progress: ${counts.IN_PROGRESS}, Done: ${counts.DONE})`
+    `Total: ${tasks.length} task (To Do: ${counts.TODO}, In Progress: ${counts.IN_PROGRESS}, Done: ${counts.DONE})`,
   );
   lines.push("");
 
@@ -115,6 +123,9 @@ export function generateWhatsAppReportText(
     lines.push(`*${group.assigneeName}*`);
     for (const task of group.tasks) {
       lines.push(`- ${formatTaskLine(task)}`);
+      if (task.description && task.description.trim() !== "") {
+        lines.push(formatTaskDescriptionLine(task.description));
+      }
     }
     lines.push("");
   }
