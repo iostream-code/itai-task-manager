@@ -1,18 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Project } from "@/lib/types";
 
 type ProjectFormModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: { name: string; description: string }) => Promise<void>;
+  // Kalau diberikan, modal masuk mode EDIT: form di-prefill dari data
+  // project ini, judul & tombol berubah jadi "Edit Project" / "Simpan
+  // Perubahan". Kalau tidak ada (undefined), modal mode TAMBAH seperti biasa.
+  project?: Project | null;
 };
 
-export default function ProjectFormModal({ isOpen, onClose, onSubmit }: ProjectFormModalProps) {
+export default function ProjectFormModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  project = null,
+}: ProjectFormModalProps) {
+  const isEditing = project !== null;
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // Prefill form setiap kali modal dibuka dengan project yang berbeda
+  // (atau dikosongkan lagi kalau project-nya null / mode tambah).
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        setName(project?.name ?? "");
+        setDescription(project?.description ?? "");
+        setError("");
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, project]);
 
   if (!isOpen) return null;
 
@@ -28,19 +53,15 @@ export default function ProjectFormModal({ isOpen, onClose, onSubmit }: ProjectF
     setIsSaving(true);
     try {
       await onSubmit({ name: name.trim(), description: description.trim() });
-      setName("");
-      setDescription("");
       onClose();
     } catch {
-      setError("Gagal membuat project. Coba lagi.");
+      setError(isEditing ? "Gagal menyimpan perubahan. Coba lagi." : "Gagal membuat project. Coba lagi.");
     } finally {
       setIsSaving(false);
     }
   }
 
   function handleClose() {
-    setName("");
-    setDescription("");
     setError("");
     onClose();
   }
@@ -55,7 +76,9 @@ export default function ProjectFormModal({ isOpen, onClose, onSubmit }: ProjectF
         className="bg-white rounded-xl shadow-xl w-full max-w-md"
       >
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-800">Tambah Project Baru</h2>
+          <h2 className="font-semibold text-slate-800">
+            {isEditing ? "Edit Project" : "Tambah Project Baru"}
+          </h2>
           <button
             onClick={handleClose}
             className="text-slate-400 hover:text-slate-600"
@@ -112,7 +135,11 @@ export default function ProjectFormModal({ isOpen, onClose, onSubmit }: ProjectF
               disabled={isSaving}
               className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-lg"
             >
-              {isSaving ? "Menyimpan..." : "Buat Project"}
+              {isSaving
+                ? "Menyimpan..."
+                : isEditing
+                  ? "Simpan Perubahan"
+                  : "Buat Project"}
             </button>
           </div>
         </form>

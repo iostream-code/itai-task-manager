@@ -14,6 +14,7 @@ export default function ProjectsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   const fetchProjects = useCallback(async () => {
     const res = await fetch("/api/projects");
@@ -35,14 +36,50 @@ export default function ProjectsPage() {
     load();
   }, [fetchProjects]);
 
-  async function handleCreateProject(data: { name: string; description: string }) {
-    const res = await fetch("/api/projects", {
-      method: "POST",
+  // Dipakai untuk submit modal, baik mode TAMBAH maupun EDIT — dibedakan
+  // dari ada/tidaknya `editingProject` saat modal dibuka.
+  async function handleSubmitProject(data: { name: string; description: string }) {
+    const isEditing = editingProject !== null;
+    const url = isEditing ? `/api/projects/${editingProject!.id}` : "/api/projects";
+    const method = isEditing ? "PATCH" : "POST";
+
+    const res = await fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error("Gagal membuat project");
+    if (!res.ok) throw new Error(isEditing ? "Gagal menyimpan perubahan" : "Gagal membuat project");
     await fetchProjects();
+  }
+
+  async function handleDeleteProject(e: React.MouseEvent, project: Project) {
+    e.preventDefault(); // jangan ikut navigasi lewat <Link> pembungkus card
+    e.stopPropagation();
+
+    const confirmed = window.confirm(
+      `Hapus project "${project.name}"? Semua task, kategori, dan data anggota di dalamnya akan ikut terhapus. Tindakan ini tidak bisa dibatalkan.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      await fetchProjects();
+    } catch {
+      setErrorMsg("Gagal menghapus project");
+    }
+  }
+
+  function openAddModal() {
+    setEditingProject(null);
+    setIsModalOpen(true);
+  }
+
+  function openEditModal(e: React.MouseEvent, project: Project) {
+    e.preventDefault(); // jangan ikut navigasi lewat <Link> pembungkus card
+    e.stopPropagation();
+    setEditingProject(project);
+    setIsModalOpen(true);
   }
 
   return (
@@ -59,7 +96,7 @@ export default function ProjectsPage() {
 
         {isAdmin && (
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={openAddModal}
             className="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg shadow-sm transition-colors"
           >
             + Tambah Project
@@ -90,9 +127,28 @@ export default function ProjectsPage() {
             <Link
               key={project.id}
               href={`/projects/${project.id}`}
-              className="block bg-white border border-slate-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-md transition-all"
+              className="relative block bg-white border border-slate-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-md transition-all"
             >
-              <h2 className="font-semibold text-slate-800">{project.name}</h2>
+              {isAdmin && (
+                <div className="absolute top-3 right-3 flex items-center gap-1">
+                  <button
+                    onClick={(e) => openEditModal(e, project)}
+                    className="text-xs text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-slate-50"
+                    aria-label={`Edit ${project.name}`}
+                  >
+                    Ubah
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteProject(e, project)}
+                    className="text-xs text-slate-400 hover:text-red-500 px-1.5 py-0.5 rounded hover:bg-slate-50"
+                    aria-label={`Hapus ${project.name}`}
+                  >
+                    Hapus
+                  </button>
+                </div>
+              )}
+
+              <h2 className="font-semibold text-slate-800 pr-20">{project.name}</h2>
               {project.description && (
                 <p className="text-sm text-slate-500 mt-1 line-clamp-2">
                   {project.description}
@@ -110,7 +166,8 @@ export default function ProjectsPage() {
       <ProjectFormModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSubmit={handleCreateProject}
+        onSubmit={handleSubmitProject}
+        project={editingProject}
       />
     </main>
   );
