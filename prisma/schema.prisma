@@ -1,0 +1,139 @@
+// Skema database untuk Task Manager
+// Belajar Prisma: setiap "model" di sini akan jadi 1 tabel di database
+//
+// Catatan Prisma 7: connection URL (DATABASE_URL) TIDAK lagi ditulis di sini.
+// Konfigurasinya dipindah ke file prisma.config.ts (untuk keperluan CLI/migrate)
+// dan ke driver adapter di lib/prisma.ts (untuk keperluan runtime/PrismaClient).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Role GLOBAL user di seluruh aplikasi.
+// "admin"  -> boleh membuat/menghapus Project, mengatur anggota Project,
+//             mengatur User lain.
+// "member" -> hanya bisa melihat & bekerja di Project tempat dia terdaftar
+//             sebagai anggota (lewat ProjectMember).
+enum GlobalRole {
+  admin
+  member
+}
+
+// Tabel user (anggota tim) + kredensial login
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  password     String // hash bcrypt, JANGAN simpan plain text
+  role         GlobalRole @default(member)
+  createdAt    DateTime   @default(now())
+
+  // Task yang di-assign ke user ini (lintas project)
+  tasks Task[]
+
+  // Keanggotaan user ini di berbagai Project, beserta peran kerjanya
+  // di masing-masing project (lihat model ProjectMember)
+  projectMemberships ProjectMember[]
+
+  // Project yang dia BUAT (bukan berarti satu-satunya yang bisa dia akses,
+  // akses sebenarnya tetap lewat ProjectMember)
+  createdProjects Project[] @relation("ProjectCreatedBy")
+}
+
+// Tabel Project: wadah utama sebelum masuk ke Kanban board.
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  createdBy   User?   @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  createdById String?
+
+  // Siapa saja yang terlibat di project ini + sebagai apa (lihat ProjectMember)
+  members ProjectMember[]
+
+  // Semua task di project ini
+  tasks Task[]
+
+  // Kategori task spesifik untuk project ini (Bug, Request, dst)
+  categories Category[]
+}
+
+// Tabel penghubung User <-> Project: "siapa terlibat, sebagai apa".
+// `role` di sini SENGAJA berupa teks bebas (bukan enum), supaya admin bisa
+// menulis peran kerja apa saja, misalnya "Project Lead", "Backend Developer",
+// "QA", "Reviewer", dll — beda dengan GlobalRole yang baku (admin/member).
+model ProjectMember {
+  id        String   @id @default(cuid())
+  role      String // contoh: "Project Lead", "Developer", "QA"
+  createdAt DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  // Satu user hanya boleh terdaftar sekali per project
+  // (kalau mau ganti peran, update role-nya, bukan tambah baris baru)
+  @@unique([projectId, userId])
+}
+
+// Tabel kategori task, contoh: Bug, Request, Maintenance.
+// Sekarang melekat ke satu Project (tiap project punya kategori sendiri).
+model Category {
+  id    String @id @default(cuid())
+  name  String
+  color String @default("#6366f1") // warna badge di UI
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  tasks Task[]
+
+  // Nama kategori unik per project (boleh sama nama "Bug" di project lain)
+  @@unique([projectId, name])
+}
+
+// Status task — pakai enum biar konsisten, tidak typo-typo di kode
+enum Status {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// Tabel utama: Task. Sekarang WAJIB terikat ke satu Project.
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  status      Status    @default(TODO)
+  priority    Priority  @default(MEDIUM)
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relasi ke Project (wajib — task selalu milik satu project)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  // Relasi ke User (siapa yang ditugaskan)
+  assignee   User?   @relation(fields: [assigneeId], references: [id])
+  assigneeId String?
+
+  // Relasi ke Category
+  category   Category? @relation(fields: [categoryId], references: [id])
+  categoryId String?
+}
