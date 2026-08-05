@@ -1,174 +1,148 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useSession } from "next-auth/react";
-import Link from "next/link";
-import { Project } from "@/lib/types";
-import ProjectFormModal from "@/components/ProjectFormModal";
+import { useState } from "react";
+import { User } from "@/lib/types";
 
-export default function ProjectsPage() {
-  const { data: session } = useSession();
-  const isAdmin = session?.user?.role === "admin";
+type AddMemberModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (data: { userId: string; role: string }) => Promise<void>;
+  // Daftar user yang BELUM jadi anggota project ini (sudah difilter di parent)
+  availableUsers: User[];
+};
 
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
+export default function AddMemberModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  availableUsers,
+}: AddMemberModalProps) {
+  const [userId, setUserId] = useState("");
+  const [role, setRole] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const fetchProjects = useCallback(async () => {
-    const res = await fetch("/api/projects");
-    if (!res.ok) throw new Error("Gagal mengambil daftar project");
-    setProjects(await res.json());
-  }, []);
+  if (!isOpen) return null;
 
-  useEffect(() => {
-    async function load() {
-      try {
-        setIsLoading(true);
-        await fetchProjects();
-      } catch {
-        setErrorMsg("Gagal memuat project. Pastikan server & database berjalan.");
-      } finally {
-        setIsLoading(false);
-      }
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    if (!userId) {
+      setError("Pilih user yang mau ditambahkan");
+      return;
     }
-    load();
-  }, [fetchProjects]);
+    if (!role.trim()) {
+      setError("Peran (role) wajib diisi, contoh: Developer, QA, Project Lead");
+      return;
+    }
 
-  // Dipakai untuk submit modal, baik mode TAMBAH maupun EDIT — dibedakan
-  // dari ada/tidaknya `editingProject` saat modal dibuka.
-  async function handleSubmitProject(data: { name: string; description: string }) {
-    const isEditing = editingProject !== null;
-    const url = isEditing ? `/api/projects/${editingProject!.id}` : "/api/projects";
-    const method = isEditing ? "PATCH" : "POST";
-
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(isEditing ? "Gagal menyimpan perubahan" : "Gagal membuat project");
-    await fetchProjects();
-  }
-
-  async function handleDeleteProject(e: React.MouseEvent, project: Project) {
-    e.preventDefault(); // jangan ikut navigasi lewat <Link> pembungkus card
-    e.stopPropagation();
-
-    const confirmed = window.confirm(
-      `Hapus project "${project.name}"? Semua task, kategori, dan data anggota di dalamnya akan ikut terhapus. Tindakan ini tidak bisa dibatalkan.`
-    );
-    if (!confirmed) return;
-
+    setIsSaving(true);
     try {
-      const res = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
-      await fetchProjects();
+      await onSubmit({ userId, role: role.trim() });
+      setUserId("");
+      setRole("");
+      onClose();
     } catch {
-      setErrorMsg("Gagal menghapus project");
+      setError("Gagal menambah anggota. Coba lagi.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
-  function openAddModal() {
-    setEditingProject(null);
-    setIsModalOpen(true);
-  }
-
-  function openEditModal(e: React.MouseEvent, project: Project) {
-    e.preventDefault(); // jangan ikut navigasi lewat <Link> pembungkus card
-    e.stopPropagation();
-    setEditingProject(project);
-    setIsModalOpen(true);
+  function handleClose() {
+    setUserId("");
+    setRole("");
+    setError("");
+    onClose();
   }
 
   return (
-    <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
-      <header className="mb-6 flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800">Project</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {isAdmin
-              ? "Semua project di organisasi kamu."
-              : "Project yang kamu ikuti."}
-          </p>
-        </div>
-
-        {isAdmin && (
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50"
+      onClick={handleClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-xl shadow-xl w-full max-w-md"
+      >
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="font-semibold text-slate-800">Tambah Anggota Project</h2>
           <button
-            onClick={openAddModal}
-            className="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg shadow-sm transition-colors"
+            onClick={handleClose}
+            className="text-slate-400 hover:text-slate-600"
+            aria-label="Tutup"
           >
-            + Tambah Project
-          </button>
-        )}
-      </header>
-
-      {errorMsg && (
-        <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center justify-between">
-          <span>{errorMsg}</span>
-          <button onClick={() => setErrorMsg("")} className="text-red-400 hover:text-red-600">
             ✕
           </button>
         </div>
-      )}
 
-      {isLoading ? (
-        <div className="text-center text-sm text-slate-400 py-20">Memuat data...</div>
-      ) : projects.length === 0 ? (
-        <div className="text-center text-sm text-slate-400 py-20 border-2 border-dashed border-slate-200 rounded-xl">
-          {isAdmin
-            ? "Belum ada project. Klik \"Tambah Project\" untuk membuat yang pertama."
-            : "Kamu belum ditambahkan ke project apa pun. Hubungi admin."}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {projects.map((project) => (
-            <Link
-              key={project.id}
-              href={`/projects/${project.id}`}
-              className="relative block bg-white border border-slate-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-md transition-all"
+        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              User <span className="text-red-500">*</span>
+            </label>
+            {availableUsers.length === 0 ? (
+              <p className="text-sm text-slate-400 italic">
+                Semua user sudah menjadi anggota project ini.
+              </p>
+            ) : (
+              <select
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                autoFocus
+              >
+                <option value="">— Pilih user —</option>
+                {availableUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.email})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Peran di project ini <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              placeholder="Contoh: Project Lead, Backend Developer, QA"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <p className="text-xs text-slate-400 mt-1">
+              Bebas tulis apa saja sesuai peran kerjanya di project ini.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
             >
-              {isAdmin && (
-                <div className="absolute top-3 right-3 flex items-center gap-1">
-                  <button
-                    onClick={(e) => openEditModal(e, project)}
-                    className="text-xs text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-slate-50"
-                    aria-label={`Edit ${project.name}`}
-                  >
-                    Ubah
-                  </button>
-                  <button
-                    onClick={(e) => handleDeleteProject(e, project)}
-                    className="text-xs text-slate-400 hover:text-red-500 px-1.5 py-0.5 rounded hover:bg-slate-50"
-                    aria-label={`Hapus ${project.name}`}
-                  >
-                    Hapus
-                  </button>
-                </div>
-              )}
-
-              <h2 className="font-semibold text-slate-800 pr-20">{project.name}</h2>
-              {project.description && (
-                <p className="text-sm text-slate-500 mt-1 line-clamp-2">
-                  {project.description}
-                </p>
-              )}
-              <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                <span>{project.members.length} anggota</span>
-                {project._count && <span>{project._count.tasks} task</span>}
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-
-      <ProjectFormModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSubmit={handleSubmitProject}
-        project={editingProject}
-      />
-    </main>
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving || availableUsers.length === 0}
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-lg"
+            >
+              {isSaving ? "Menyimpan..." : "Tambah Anggota"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
