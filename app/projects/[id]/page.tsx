@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -17,12 +17,140 @@ import TaskListTree from "@/components/TaskListTree";
 import FilterBar from "@/components/FilterBar";
 import TaskFormModal, { TaskFormData } from "@/components/TaskFormModal";
 import MemberList from "@/components/MemberList";
-import AddMemberModal from "@/components/AddMemberModal";
 import CategoryManager from "@/components/CategoryManager";
 import WhatsAppReportModal from "@/components/WhatsAppReportModal";
 import TaskHistoryList from "@/components/TaskHistoryList";
 
 type Tab = "board" | "members" | "history";
+
+type AddMemberModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (data: { userId: string; role: string }) => Promise<void>;
+  availableUsers: User[];
+};
+
+function AddMemberModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  availableUsers,
+}: AddMemberModalProps) {
+  const [userId, setUserId] = useState("");
+  const [role, setRole] = useState("member");
+  const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setUserId("");
+    setRole("member");
+    setError("");
+    setIsSaving(false);
+  }, [isOpen, availableUsers]);
+
+  if (!isOpen) return null;
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+
+    if (!userId) {
+      setError("Pilih pengguna untuk ditambahkan");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await onSubmit({ userId, role });
+      onClose();
+    } catch {
+      setError("Gagal menambah anggota. Coba lagi.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-xl shadow-xl w-full max-w-md"
+      >
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="font-semibold text-slate-800">Tambah Anggota</h2>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+            aria-label="Tutup"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Pengguna
+            </label>
+            <select
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            >
+              <option value="">— Pilih pengguna —</option>
+              {availableUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Peran
+            </label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving || availableUsers.length === 0}
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-lg"
+            >
+              {isSaving ? "Menyimpan..." : "Tambah Anggota"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 // projectId dianggap valid kalau ada isinya DAN bukan string literal
 // "undefined"/"null" — kondisi terakhir ini bisa terjadi kalau ada link atau
