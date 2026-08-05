@@ -10,6 +10,12 @@ type TaskFormModalProps = {
   task: Task | null; // null = mode "tambah baru", ada isinya = mode "edit"
   users: User[];
   categories: Category[];
+  // Kalau diisi (dan task === null), modal masuk mode "Tambah Subtask":
+  // judul task induk ditampilkan sebagai konteks, dan parentId otomatis
+  // disertakan di data yang dikirim ke onSubmit. Diabaikan saat mode edit
+  // (task tidak null) — subtask tidak bisa "dipindah induk" lewat form ini,
+  // lihat catatan di app/api/tasks/[id]/route.ts.
+  parentTask?: Task | null;
 };
 
 export type TaskFormData = {
@@ -20,6 +26,7 @@ export type TaskFormData = {
   dueDate: string;
   assigneeId: string;
   categoryId: string;
+  parentId: string;
 };
 
 const EMPTY_FORM: TaskFormData = {
@@ -30,6 +37,7 @@ const EMPTY_FORM: TaskFormData = {
   dueDate: "",
   assigneeId: "",
   categoryId: "",
+  parentId: "",
 };
 
 export default function TaskFormModal({
@@ -39,6 +47,7 @@ export default function TaskFormModal({
   task,
   users,
   categories,
+  parentTask = null,
 }: TaskFormModalProps) {
   // Bangun nilai awal form langsung dari prop `task`.
   // Dipakai sebagai initializer function useState (hanya jalan sekali saat mount).
@@ -47,7 +56,11 @@ export default function TaskFormModal({
   // me-remount-nya — bukan lewat useEffect + setState yang bisa memicu
   // cascading render.
   function buildInitialForm(): TaskFormData {
-    if (!task) return EMPTY_FORM;
+    if (!task) {
+      // Mode tambah baru. Kalau ada parentTask, ini tambah SUBTASK —
+      // sertakan parentId-nya dari awal.
+      return { ...EMPTY_FORM, parentId: parentTask?.id ?? "" };
+    }
     return {
       title: task.title,
       description: task.description || "",
@@ -56,6 +69,7 @@ export default function TaskFormModal({
       dueDate: task.dueDate ? task.dueDate.slice(0, 10) : "",
       assigneeId: task.assigneeId || "",
       categoryId: task.categoryId || "",
+      parentId: task.parentId || "",
     };
   }
 
@@ -98,7 +112,7 @@ export default function TaskFormModal({
       >
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <h2 className="font-semibold text-slate-800">
-            {task ? "Edit Task" : "Tambah Task Baru"}
+            {task ? "Edit Task" : parentTask ? "Tambah Subtask" : "Tambah Task Baru"}
           </h2>
           <button
             onClick={onClose}
@@ -113,6 +127,12 @@ export default function TaskFormModal({
           {error && (
             <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               {error}
+            </div>
+          )}
+
+          {!task && parentTask && (
+            <div className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+              Subtask dari: <span className="font-medium">{parentTask.title}</span>
             </div>
           )}
 
@@ -238,7 +258,7 @@ export default function TaskFormModal({
               disabled={isSaving}
               className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-lg"
             >
-              {isSaving ? "Menyimpan..." : task ? "Simpan Perubahan" : "Tambah Task"}
+              {isSaving ? "Menyimpan..." : task ? "Simpan Perubahan" : parentTask ? "Tambah Subtask" : "Tambah Task"}
             </button>
           </div>
         </form>

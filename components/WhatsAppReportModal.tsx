@@ -30,9 +30,10 @@ export default function WhatsAppReportModal({
   // Hitung ulang hanya saat modal dibuka / data task berubah — tidak perlu
   // di-recompute tiap render karena tasks biasanya stabil selama modal terbuka.
   const counts = useMemo(() => summarizeStatusCounts(tasks), [tasks]);
-  // Report sekarang per-TASK: setiap task jadi satu bubble sendiri,
-  // diurutkan lewat sortTasksForReport (status berjalan dulu, lalu alfabetis).
-  const sortedTasks = useMemo(() => sortTasksForReport(tasks), [tasks]);
+  // Report sekarang per-TASK: setiap task (dan subtask) jadi satu bubble
+  // sendiri, diurutkan lewat sortTasksForReport — subtask muncul tepat di
+  // bawah task induknya (lihat ReportRow.isSubtask untuk indentasi).
+  const rows = useMemo(() => sortTasksForReport(tasks), [tasks]);
   const reportText = useMemo(
     () => generateWhatsAppReportText(projectName, tasks),
     [projectName, tasks]
@@ -118,7 +119,7 @@ export default function WhatsAppReportModal({
                 Memuat data task...
               </p>
             </ChatBubble>
-          ) : sortedTasks.length === 0 ? (
+          ) : rows.length === 0 ? (
             <ChatBubble>
               <p className="text-slate-500 italic text-sm">
                 Belum ada task di project ini.
@@ -126,10 +127,15 @@ export default function WhatsAppReportModal({
               <BubbleMeta />
             </ChatBubble>
           ) : (
-            // Satu bubble PER TASK (bukan lagi dikelompokkan per assignee).
-            sortedTasks.map((task) => (
-              <ChatBubble key={task.id}>
-                <p className="font-semibold text-[#075E54]">{task.title}</p>
+            // Satu bubble PER TASK/SUBTASK. Subtask digeser sedikit ke kanan
+            // (margin-left) dan diberi awalan "↳" supaya terlihat sebagai
+            // anak dari bubble task induk tepat di atasnya.
+            rows.map(({ task, isSubtask }) => (
+              <ChatBubble key={task.id} indent={isSubtask}>
+                <p className="font-semibold text-[#075E54]">
+                  {isSubtask && <span className="text-slate-400 font-normal">↳ </span>}
+                  {task.title}
+                </p>
                 <p className="text-xs mt-1">{formatTaskMeta(task)}</p>
                 <p className="text-xs text-slate-500 mt-1">
                   Assignee: <span className="font-medium">{assigneeLabel(task)}</span>
@@ -184,10 +190,14 @@ export default function WhatsAppReportModal({
 }
 
 // Satu bubble pesan, gaya WA: putih, rounded, ekor kecil di kiri atas (lewat
-// border-radius asimetris), dengan sedikit shadow tipis.
-function ChatBubble({ children }: { children: React.ReactNode }) {
+// border-radius asimetris), dengan sedikit shadow tipis. `indent` menggeser
+// bubble sedikit ke kanan — dipakai untuk bubble subtask, supaya terlihat
+// sebagai "anak" dari bubble task induk tepat di atasnya.
+function ChatBubble({ children, indent = false }: { children: React.ReactNode; indent?: boolean }) {
   return (
-    <div className="bg-white rounded-lg rounded-tl-none shadow-sm px-3 py-2 max-w-[92%] text-sm text-slate-800">
+    <div
+      className={`bg-white rounded-lg rounded-tl-none shadow-sm px-3 py-2 max-w-[92%] text-sm text-slate-800 ${indent ? "ml-6" : ""}`}
+    >
       {children}
     </div>
   );

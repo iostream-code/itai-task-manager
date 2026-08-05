@@ -59,6 +59,11 @@ export type Task = {
   categoryId: string | null;
   assignee: User | null;
   category: Category | null;
+  // Subtask: 1 level saja. parentId terisi -> task ini ADALAH subtask.
+  // subtasks -> daftar subtask MILIK task ini (selalu [] kalau task ini
+  // sendiri sudah berupa subtask, karena tidak boleh nested).
+  parentId: string | null;
+  subtasks?: Task[];
 };
 
 // Label & warna untuk ditampilkan di UI (bukan dari database)

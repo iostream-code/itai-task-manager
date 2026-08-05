@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -17,140 +17,13 @@ import TaskListTree from "@/components/TaskListTree";
 import FilterBar from "@/components/FilterBar";
 import TaskFormModal, { TaskFormData } from "@/components/TaskFormModal";
 import MemberList from "@/components/MemberList";
+import AddMemberModal from "@/components/AddMemberModal";
 import CategoryManager from "@/components/CategoryManager";
 import WhatsAppReportModal from "@/components/WhatsAppReportModal";
 import TaskHistoryList from "@/components/TaskHistoryList";
+import Timeline from "@/components/Timeline";
 
-type Tab = "board" | "members" | "history";
-
-type AddMemberModalProps = {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (data: { userId: string; role: string }) => Promise<void>;
-  availableUsers: User[];
-};
-
-function AddMemberModal({
-  isOpen,
-  onClose,
-  onSubmit,
-  availableUsers,
-}: AddMemberModalProps) {
-  const [userId, setUserId] = useState("");
-  const [role, setRole] = useState("member");
-  const [error, setError] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setUserId("");
-    setRole("member");
-    setError("");
-    setIsSaving(false);
-  }, [isOpen, availableUsers]);
-
-  if (!isOpen) return null;
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
-
-    if (!userId) {
-      setError("Pilih pengguna untuk ditambahkan");
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      await onSubmit({ userId, role });
-      onClose();
-    } catch {
-      setError("Gagal menambah anggota. Coba lagi.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-xl shadow-xl w-full max-w-md"
-      >
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-800">Tambah Anggota</h2>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600"
-            aria-label="Tutup"
-          >
-            ✕
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
-          {error && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Pengguna
-            </label>
-            <select
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            >
-              <option value="">— Pilih pengguna —</option>
-              {availableUsers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Peran
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
-            >
-              Batal
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving || availableUsers.length === 0}
-              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-lg"
-            >
-              {isSaving ? "Menyimpan..." : "Tambah Anggota"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+type Tab = "board" | "timeline" | "members" | "history";
 
 // projectId dianggap valid kalau ada isinya DAN bukan string literal
 // "undefined"/"null" — kondisi terakhir ini bisa terjadi kalau ada link atau
@@ -192,6 +65,9 @@ export default function ProjectDetailPage() {
 
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  // Kalau terisi, TaskFormModal masuk mode "Tambah Subtask" untuk task ini.
+  // null saat mode tambah task biasa / edit.
+  const [parentTaskForSubtask, setParentTaskForSubtask] = useState<Task | null>(null);
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportTasks, setReportTasks] = useState<Task[]>([]);
@@ -202,6 +78,13 @@ export default function ProjectDetailPage() {
   const [historyTasks, setHistoryTasks] = useState<Task[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // Timeline: daftar RATA (flat=1) semua task termasuk subtask, supaya tiap
+  // task individual bisa ditaruh di hari masing-masing. Dimuat malas, hanya
+  // saat tab Timeline pertama kali dibuka.
+  const [timelineTasks, setTimelineTasks] = useState<Task[]>([]);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+  const [timelineLoaded, setTimelineLoaded] = useState(false);
 
   // --- Fetch helpers ---
   const fetchProject = useCallback(async () => {
@@ -236,6 +119,25 @@ export default function ProjectDetailPage() {
       setErrorMsg("Gagal memuat riwayat task");
     } finally {
       setIsHistoryLoading(false);
+    }
+  }, [projectId]);
+
+  // Timeline butuh SEMUA task (top-level + subtask) sebagai daftar rata,
+  // tanpa filter kategori/assignee yang sedang aktif di tab Daftar Task —
+  // supaya kalender selalu menampilkan gambaran lengkap. Task yang sudah
+  // masuk History (DONE > H+1) TETAP disertakan (view=all) supaya jejak
+  // riwayatnya masih terlihat di kalender.
+  const fetchTimelineTasks = useCallback(async () => {
+    setIsTimelineLoading(true);
+    try {
+      const res = await fetch(`/api/tasks?projectId=${projectId}&view=all&flat=1`);
+      if (!res.ok) throw new Error();
+      setTimelineTasks(await res.json());
+      setTimelineLoaded(true);
+    } catch {
+      setErrorMsg("Gagal memuat timeline");
+    } finally {
+      setIsTimelineLoading(false);
     }
   }, [projectId]);
 
@@ -280,6 +182,16 @@ export default function ProjectDetailPage() {
     }
   }, [activeTab, historyLoaded, fetchHistoryTasks]);
 
+  // Sama untuk Timeline — dimuat malas saat tab-nya pertama kali dibuka.
+  useEffect(() => {
+    if (activeTab === "timeline" && !timelineLoaded) {
+      const timer = setTimeout(() => {
+        fetchTimelineTasks();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, timelineLoaded, fetchTimelineTasks]);
+
   // --- Filter handlers (fetch ulang task saat filter berubah) ---
   async function handleCategoryFilterChange(value: string) {
     setCategoryFilter(value);
@@ -315,24 +227,37 @@ export default function ProjectDetailPage() {
     const url = isEditing ? `/api/tasks/${editingTask!.id}` : "/api/tasks";
     const method = isEditing ? "PATCH" : "POST";
 
+    // parentId hanya relevan saat CREATE (subtask baru). Saat edit, field
+    // ini diabaikan API (lihat catatan di app/api/tasks/[id]/route.ts) jadi
+    // tidak perlu dikirim ulang.
+    const payload = isEditing
+      ? formData
+      : { ...formData, projectId, parentId: formData.parentId || undefined };
+
     const res = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(isEditing ? formData : { ...formData, projectId }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) throw new Error("Gagal menyimpan task");
     await fetchTasks();
+    // Timeline & History bisa terpengaruh (tanggal/status berubah) —
+    // tandai perlu refresh berikutnya kali tab itu dibuka lagi.
+    setTimelineLoaded(false);
   }
 
   async function handleDeleteTask(taskId: string) {
-    const confirmed = window.confirm("Yakin ingin menghapus task ini?");
+    const confirmed = window.confirm(
+      "Yakin ingin menghapus task ini? Kalau task ini punya subtask, semua subtask-nya juga akan ikut terhapus."
+    );
     if (!confirmed) return;
 
     try {
       const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       await fetchTasks();
+      setTimelineLoaded(false);
     } catch {
       setErrorMsg("Gagal menghapus task");
     }
@@ -340,11 +265,26 @@ export default function ProjectDetailPage() {
 
   // Ubah status lewat dropdown di List Tree (menggantikan drag-and-drop
   // Kanban board sebelumnya). Optimistic update: tampilan berubah duluan,
-  // baru menunggu response server.
+  // baru menunggu response server. Task bisa berada di level TOP-LEVEL atau
+  // sebagai SUBTASK bersarang di dalam task.subtasks — helper di bawah
+  // mengupdate keduanya, apa pun levelnya.
+  function updateTaskStatusInTree(prevTasks: Task[], taskId: string, newStatus: Status): Task[] {
+    return prevTasks.map((t) => {
+      if (t.id === taskId) return { ...t, status: newStatus };
+      if (t.subtasks?.some((s) => s.id === taskId)) {
+        return {
+          ...t,
+          subtasks: t.subtasks.map((s) =>
+            s.id === taskId ? { ...s, status: newStatus } : s
+          ),
+        };
+      }
+      return t;
+    });
+  }
+
   async function handleStatusChange(taskId: string, newStatus: Status) {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
-    );
+    setTasks((prev) => updateTaskStatusInTree(prev, taskId, newStatus));
 
     try {
       const res = await fetch(`/api/tasks/${taskId}`, {
@@ -355,9 +295,10 @@ export default function ProjectDetailPage() {
       if (!res.ok) throw new Error();
       // Task yang baru saja DONE tetap tampil di board sampai H+1 (lihat
       // filter view=active di backend), jadi tidak perlu fetchTasks ulang.
-      // Tapi kalau nanti tab History sudah pernah dibuka, tandai perlu
-      // refresh berikutnya supaya tetap akurat.
+      // Tapi kalau nanti tab History/Timeline sudah pernah dibuka, tandai
+      // perlu refresh berikutnya supaya tetap akurat.
       setHistoryLoaded(false);
+      setTimelineLoaded(false);
     } catch {
       setErrorMsg("Gagal mengubah status, mengembalikan tampilan...");
       await fetchTasks();
@@ -366,23 +307,33 @@ export default function ProjectDetailPage() {
 
   function openAddTaskModal() {
     setEditingTask(null);
+    setParentTaskForSubtask(null);
+    setIsTaskModalOpen(true);
+  }
+
+  function openAddSubtaskModal(parentTask: Task) {
+    setEditingTask(null);
+    setParentTaskForSubtask(parentTask);
     setIsTaskModalOpen(true);
   }
 
   function openEditTaskModal(task: Task) {
     setEditingTask(task);
+    setParentTaskForSubtask(null);
     setIsTaskModalOpen(true);
   }
 
   // --- Report handler ---
-  // Report SELALU mengambil SEMUA task project (view=all) tanpa terpengaruh
-  // filter kategori/assignee yang sedang aktif, MAUPUN tanpa terpengaruh
-  // pemisahan History — laporan tetap mencakup task yang sudah lama Done.
+  // Report SELALU mengambil SEMUA task project (view=all, flat=1) tanpa
+  // terpengaruh filter kategori/assignee yang sedang aktif, MAUPUN tanpa
+  // terpengaruh pemisahan History — laporan tetap mencakup task yang sudah
+  // lama Done. flat=1 supaya subtask ikut sebagai baris tersendiri (lihat
+  // lib/report-format.ts untuk cara subtask ditampilkan dengan indentasi).
   async function openReportModal() {
     setIsReportModalOpen(true);
     setIsReportLoading(true);
     try {
-      const res = await fetch(`/api/tasks?projectId=${projectId}&view=all`);
+      const res = await fetch(`/api/tasks?projectId=${projectId}&view=all&flat=1`);
       if (!res.ok) throw new Error();
       setReportTasks(await res.json());
     } catch {
@@ -515,6 +466,15 @@ export default function ProjectDetailPage() {
           Daftar Task
         </button>
         <button
+          onClick={() => setActiveTab("timeline")}
+          className={`text-sm font-medium pb-2 border-b-2 transition-colors ${activeTab === "timeline"
+            ? "border-indigo-600 text-indigo-600"
+            : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}
+        >
+          Timeline
+        </button>
+        <button
           onClick={() => setActiveTab("members")}
           className={`text-sm font-medium pb-2 border-b-2 transition-colors ${activeTab === "members"
             ? "border-indigo-600 text-indigo-600"
@@ -552,6 +512,23 @@ export default function ProjectDetailPage() {
         </>
       ) : activeTab === "history" ? (
         <TaskHistoryList tasks={historyTasks} isLoading={isHistoryLoading} />
+      ) : activeTab === "timeline" ? (
+        <>
+          <Timeline
+            tasks={timelineTasks}
+            onTaskClick={openEditTaskModal}
+            isLoading={isTimelineLoading}
+          />
+          <TaskFormModal
+            key={editingTask ? editingTask.id : "timeline-edit"}
+            isOpen={isTaskModalOpen}
+            onClose={() => setIsTaskModalOpen(false)}
+            onSubmit={handleSubmitTask}
+            task={editingTask}
+            users={members.map((m) => m.user)}
+            categories={categories}
+          />
+        </>
       ) : (
         <>
           <div className="mb-3">
@@ -579,16 +556,18 @@ export default function ProjectDetailPage() {
             onTaskClick={openEditTaskModal}
             onTaskDelete={handleDeleteTask}
             onStatusChange={handleStatusChange}
+            onAddSubtask={openAddSubtaskModal}
           />
 
           <TaskFormModal
-            key={editingTask ? editingTask.id : "new"}
+            key={editingTask ? editingTask.id : parentTaskForSubtask ? `subtask-of-${parentTaskForSubtask.id}` : "new"}
             isOpen={isTaskModalOpen}
             onClose={() => setIsTaskModalOpen(false)}
             onSubmit={handleSubmitTask}
             task={editingTask}
             users={members.map((m) => m.user)}
             categories={categories}
+            parentTask={parentTaskForSubtask}
           />
         </>
       )}

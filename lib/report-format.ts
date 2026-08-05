@@ -11,6 +11,13 @@
 // task, diurutkan berdasarkan status lalu judul), BUKAN per assignee lagi.
 // Nama assignee ditampilkan sebagai salah satu baris info di dalam setiap
 // task, bukan lagi sebagai judul pengelompok.
+//
+// SUBTASK: Fungsi-fungsi di sini menerima daftar task RATA (flat) — hasil
+// dari GET /api/tasks?...&flat=1, yaitu task top-level DAN subtask sebagai
+// satu daftar datar, dibedakan lewat field `parentId`. sortTasksForReport
+// mengelompokkan tiap subtask tepat di bawah task induknya (bukan ikut
+// terurut sendiri berdasarkan status subtask itu sendiri), supaya report
+// tetap terbaca sebagai struktur task -> subtask, bukan daftar acak.
 
 import { Task, Status, STATUS_LABEL } from "@/lib/types";
 
@@ -30,16 +37,51 @@ function formatDueDate(dueDate: string | null): string {
   return `${day}-${month}`;
 }
 
-// Mengurutkan task untuk keperluan report: berdasarkan status (urutan
-// STATUS_ORDER di atas), lalu judul secara alfabetis di dalam status yang
-// sama. Dipakai bersama baik oleh render bubble (satu blok per task)
-// maupun generateWhatsAppReportText, supaya urutannya selalu konsisten.
-export function sortTasksForReport(tasks: Task[]): Task[] {
-  return [...tasks].sort((a, b) => {
+// Baris hasil susunan report: task induk atau subtask, ditandai `isSubtask`
+// supaya pemanggil (teks copy maupun bubble) tahu perlu diberi indentasi.
+export type ReportRow = { task: Task; isSubtask: boolean };
+
+// Susun task (flat, top-level + subtask campur) jadi daftar baris terurut:
+// task top-level diurutkan lewat STATUS_ORDER lalu judul (seperti biasa),
+// dan tiap subtask-nya langsung mengikuti tepat di bawah task induknya
+// (diurutkan dengan aturan yang sama di antara sesama subtask satu induk).
+// Subtask "yatim" (parentId menunjuk ke task yang tidak ada di daftar —
+// harusnya tidak pernah terjadi lewat UI normal, tapi dijaga untuk
+// keamanan) ditaruh di akhir sebagai task top-level biasa.
+export function sortTasksForReport(tasks: Task[]): ReportRow[] {
+  function byStatusThenTitle(a: Task, b: Task): number {
     const statusDiff = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
     if (statusDiff !== 0) return statusDiff;
     return a.title.localeCompare(b.title);
-  });
+  }
+
+  const topLevel = tasks.filter((t) => !t.parentId);
+  const subtasksByParent = new Map<string, Task[]>();
+  for (const t of tasks) {
+    if (!t.parentId) continue;
+    const parentExists = tasks.some((p) => p.id === t.parentId);
+    if (!parentExists) continue; // subtask yatim ditangani terpisah di bawah
+    const list = subtasksByParent.get(t.parentId) ?? [];
+    list.push(t);
+    subtasksByParent.set(t.parentId, list);
+  }
+  const orphanSubtasks = tasks.filter(
+    (t) => t.parentId && !tasks.some((p) => p.id === t.parentId)
+  );
+
+  const rows: ReportRow[] = [];
+  for (const parent of [...topLevel].sort(byStatusThenTitle)) {
+    rows.push({ task: parent, isSubtask: false });
+    const children = (subtasksByParent.get(parent.id) ?? []).sort(byStatusThenTitle);
+    for (const child of children) {
+      rows.push({ task: child, isSubtask: true });
+    }
+  }
+  for (const orphan of [...orphanSubtasks].sort(byStatusThenTitle)) {
+    rows.push({ task: orphan, isSubtask: false });
+  }
+
+  return rows;
 }
 
 // Nama assignee yang ditampilkan di setiap baris task ("Belum Ditugaskan"
@@ -91,13 +133,14 @@ export function summarizeStatusCounts(tasks: Task[]): Record<Status, number> {
 
 // Generate teks lengkap, format WhatsApp (*bold*), siap di-copy & paste.
 // Sekarang satu blok per TASK (diurutkan lewat sortTasksForReport), dengan
-// nama assignee ditulis sebagai baris info di dalam blok tersebut.
+// nama assignee ditulis sebagai baris info di dalam blok tersebut. Subtask
+// ditulis dengan indentasi + awalan "↳" tepat di bawah task induknya.
 export function generateWhatsAppReportText(
   projectName: string,
   tasks: Task[],
 ): string {
   const counts = summarizeStatusCounts(tasks);
-  const sortedTasks = sortTasksForReport(tasks);
+  const rows = sortTasksForReport(tasks);
   const today = new Date().toLocaleDateString("id-ID", {
     weekday: "long",
     day: "numeric",
@@ -114,17 +157,18 @@ export function generateWhatsAppReportText(
   );
   lines.push("");
 
-  if (sortedTasks.length === 0) {
+  if (rows.length === 0) {
     lines.push("_Belum ada task di project ini._");
     return lines.join("\n");
   }
 
-  for (const task of sortedTasks) {
-    lines.push(`*${task.title}*`);
-    lines.push(`${formatTaskMeta(task)}`);
-    lines.push(`Assignee: ${assigneeLabel(task)}`);
+  for (const { task, isSubtask } of rows) {
+    const indent = isSubtask ? "  ↳ " : "";
+    lines.push(`${indent}*${task.title}*`);
+    lines.push(`${indent}${formatTaskMeta(task)}`);
+    lines.push(`${indent}Assignee: ${assigneeLabel(task)}`);
     if (task.description && task.description.trim() !== "") {
-      lines.push(formatTaskDescriptionLine(task.description));
+      lines.push(`${indent}${formatTaskDescriptionLine(task.description)}`);
     }
     lines.push("");
   }

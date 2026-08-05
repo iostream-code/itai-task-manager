@@ -140,4 +140,16 @@ model Task {
   // Relasi ke Category
   category   Category? @relation(fields: [categoryId], references: [id])
   categoryId String?
+
+  // Subtask: self-relation 1 LEVEL SAJA (subtask tidak boleh punya subtask
+  // lagi — validasi ini dijaga di app/api/tasks/route.ts saat create, bukan
+  // di level schema, karena Prisma tidak punya cara native untuk membatasi
+  // "kedalaman" relasi self-referencing).
+  //
+  // parent  -> task induk dari task ini (null kalau task ini bukan subtask)
+  // subtasks -> daftar subtask MILIK task ini (kosong kalau task ini sendiri
+  //             adalah subtask, karena subtask tidak boleh py subtask lagi)
+  parent     Task?   @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId   String?
+  subtasks   Task[]  @relation("TaskSubtasks")
 }
