@@ -19,7 +19,16 @@ export default auth((req) => {
 
   if (!isLoggedIn && !isPublicPath) {
     const loginUrl = new URL("/login", nextUrl);
-    loginUrl.searchParams.set("callbackUrl", nextUrl.pathname);
+    // Jangan simpan path yang jelas rusak (mengandung "undefined"/"null"
+    // sebagai salah satu segmennya, misal dari link atau prefetch yang
+    // sempat menyimpan id yang belum ter-resolve) sebagai callbackUrl —
+    // kalau tersimpan, user akan diarahkan BALIK ke path rusak itu persis
+    // setelah berhasil login, dan halaman tujuan akan gagal fetch data.
+    const pathSegments = nextUrl.pathname.split("/");
+    const hasBrokenSegment = pathSegments.some((seg) => seg === "undefined" || seg === "null");
+    if (!hasBrokenSegment) {
+      loginUrl.searchParams.set("callbackUrl", nextUrl.pathname);
+    }
     return NextResponse.redirect(loginUrl);
   }
 
