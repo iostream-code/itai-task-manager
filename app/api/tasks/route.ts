@@ -2,18 +2,35 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canAccessProject } from "@/lib/auth-helpers";
 
+// Ambang waktu "History": task berstatus DONE yang statusnya (updatedAt)
+// sudah lebih dari 24 jam yang lalu dianggap masuk History, dan disembunyikan
+// dari tampilan board/list aktif secara default. Tidak ada job/cron terpisah
+// — ini dicek on-the-fly setiap kali data task diambil, dengan membandingkan
+// `updatedAt` terhadap waktu saat request dijalankan.
+const HISTORY_THRESHOLD_MS = 24 * 60 * 60 * 1000; // H+1
+
 // GET /api/tasks?projectId=xxx
 // Mengambil task DI DALAM satu project, bisa difilter lewat query string
 // tambahan, contoh: /api/tasks?projectId=xxx&status=TODO&categoryId=abc123
 //
 // projectId WAJIB — task selalu terikat ke satu project, dan kita harus
 // tahu project mana untuk mengecek apakah user yang request punya akses.
+//
+// Query opsional `view`:
+//   - "active" (default) -> task board/list biasa. Task DONE yang sudah
+//     lewat H+1 SEJAK terakhir diupdate (lihat HISTORY_THRESHOLD_MS)
+//     disembunyikan dari sini karena sudah "pindah" ke History.
+//   - "history" -> kebalikannya, HANYA task DONE yang sudah lewat H+1.
+//     Dipakai oleh halaman /projects/[id]/history.
+//   - "all" -> tidak ada filter history sama sekali (dipakai oleh Report,
+//     supaya laporan tetap mencakup seluruh task apa pun umur statusnya).
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const projectId = searchParams.get("projectId");
   const status = searchParams.get("status");
   const categoryId = searchParams.get("categoryId");
   const assigneeId = searchParams.get("assigneeId");
+  const view = searchParams.get("view") || "active";
 
   if (!projectId) {
     return NextResponse.json({ error: "projectId wajib diisi" }, { status: 400 });
@@ -29,10 +46,27 @@ export async function GET(request: NextRequest) {
 
   // Bangun objek "where" secara dinamis.
   // Kalau query param tidak ada, filter itu tidak dipakai.
-  const where: Record<string, string> = { projectId };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: Record<string, any> = { projectId };
   if (status) where.status = status;
   if (categoryId) where.categoryId = categoryId;
   if (assigneeId) where.assigneeId = assigneeId;
+
+  const historyCutoff = new Date(Date.now() - HISTORY_THRESHOLD_MS);
+
+  if (view === "history") {
+    // Hanya task DONE yang sudah "matang" lebih dari 24 jam.
+    where.status = "DONE";
+    where.updatedAt = { lte: historyCutoff };
+  } else if (view === "active") {
+    // Sembunyikan task DONE yang sudah lewat 24 jam dari tampilan aktif.
+    // Task DONE yang BARU saja diubah (< 24 jam) tetap tampil seperti biasa.
+    // NOT di sini membungkus SATU kondisi gabungan (status DONE *dan*
+    // updatedAt lama) — bukan dua kondisi NOT terpisah — supaya artinya
+    // tepat "kecualikan task yang DONE **sekaligus** sudah lama diupdate".
+    where.NOT = { AND: [{ status: "DONE" }, { updatedAt: { lte: historyCutoff } }] };
+  }
+  // view === "all": tidak ada filter tambahan sama sekali.
 
   try {
     const tasks = await prisma.task.findMany({

@@ -9,19 +9,29 @@ const PUBLIC_USER_FIELDS = {
   name: true,
   email: true,
   role: true,
+  isActive: true,
   createdAt: true,
 } as const;
 
 // GET /api/users — daftar semua user, dipakai untuk dropdown "assign ke"
 // dan dropdown "tambah anggota project". Siapa pun yang sudah login boleh
 // melihat daftar nama dasar (tidak ada data sensitif yang diekspos).
-export async function GET() {
+//
+// Query opsional: ?includeInactive=1 supaya user nonaktif ikut ditampilkan
+// (dipakai di halaman Anggota/admin). Secara default (dipakai dropdown
+// assign/tambah anggota) user nonaktif DISEMBUNYIKAN karena tidak masuk
+// akal menugaskan task ke akun yang tidak bisa login lagi.
+export async function GET(request: NextRequest) {
   const currentUser = await getCurrentUser();
   if (!currentUser) {
     return NextResponse.json({ error: "Belum login" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(request.url);
+  const includeInactive = searchParams.get("includeInactive") === "1";
+
   const users = await prisma.user.findMany({
+    where: includeInactive ? undefined : { isActive: true },
     select: PUBLIC_USER_FIELDS,
     orderBy: { name: "asc" },
   });
@@ -38,7 +48,7 @@ export async function POST(request: NextRequest) {
   if (currentUser.role !== "admin") {
     return NextResponse.json(
       { error: "Hanya admin yang bisa menambah user" },
-      { status: 403 }
+      { status: 403 },
     );
   }
 
@@ -49,13 +59,13 @@ export async function POST(request: NextRequest) {
     if (!name || !email || !password) {
       return NextResponse.json(
         { error: "Nama, email, dan password wajib diisi" },
-        { status: 400 }
+        { status: 400 },
       );
     }
     if (typeof password !== "string" || password.length < 8) {
       return NextResponse.json(
         { error: "Password minimal 8 karakter" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -67,6 +77,7 @@ export async function POST(request: NextRequest) {
         email,
         password: hashedPassword,
         role: role === "admin" ? "admin" : "member",
+        isActive: true,
       },
       select: PUBLIC_USER_FIELDS,
     });
@@ -83,7 +94,7 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Email sudah terdaftar" },
-        { status: 409 }
+        { status: 409 },
       );
     }
     console.error("POST /api/users error:", error);

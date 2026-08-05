@@ -41,7 +41,7 @@ function LoginForm() {
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <h1 className="text-xl font-bold text-slate-800">Task Manager — Tim IT</h1>
-          <p className="text-sm text-slate-500 mt-1">Masuk untuk lanjut ke project kamu</p>
+          <p className="text-sm text-slate-500 mt-1">Masuk untuk berpesta</p>
         </div>
 
         <form

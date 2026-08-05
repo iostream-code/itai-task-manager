@@ -37,6 +37,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) return null;
 
+        // User yang sudah dinonaktifkan admin tidak boleh login lagi,
+        // meski password-nya masih benar.
+        if (!user.isActive) return null;
+
         const passwordValid = await compare(password, user.password);
         if (!passwordValid) return null;
 

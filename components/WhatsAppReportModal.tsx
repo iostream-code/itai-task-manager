@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Task, STATUS_LABEL } from "@/lib/types";
+import { Task } from "@/lib/types";
 import {
-  groupTasksByAssignee,
+  sortTasksForReport,
   summarizeStatusCounts,
   generateWhatsAppReportText,
-  formatDueDate,
+  formatTaskMeta,
+  assigneeLabel,
 } from "@/lib/report-format";
 
 type WhatsAppReportModalProps = {
@@ -29,7 +30,9 @@ export default function WhatsAppReportModal({
   // Hitung ulang hanya saat modal dibuka / data task berubah — tidak perlu
   // di-recompute tiap render karena tasks biasanya stabil selama modal terbuka.
   const counts = useMemo(() => summarizeStatusCounts(tasks), [tasks]);
-  const groups = useMemo(() => groupTasksByAssignee(tasks), [tasks]);
+  // Report sekarang per-TASK: setiap task jadi satu bubble sendiri,
+  // diurutkan lewat sortTasksForReport (status berjalan dulu, lalu alfabetis).
+  const sortedTasks = useMemo(() => sortTasksForReport(tasks), [tasks]);
   const reportText = useMemo(
     () => generateWhatsAppReportText(projectName, tasks),
     [projectName, tasks]
@@ -115,7 +118,7 @@ export default function WhatsAppReportModal({
                 Memuat data task...
               </p>
             </ChatBubble>
-          ) : tasks.length === 0 ? (
+          ) : sortedTasks.length === 0 ? (
             <ChatBubble>
               <p className="text-slate-500 italic text-sm">
                 Belum ada task di project ini.
@@ -123,14 +126,19 @@ export default function WhatsAppReportModal({
               <BubbleMeta />
             </ChatBubble>
           ) : (
-            groups.map((group) => (
-              <ChatBubble key={group.assigneeName}>
-                <p className="font-semibold text-[#075E54]">{group.assigneeName}</p>
-                <ul className="mt-1.5 space-y-1.5">
-                  {group.tasks.map((task) => (
-                    <TaskLine key={task.id} task={task} />
-                  ))}
-                </ul>
+            // Satu bubble PER TASK (bukan lagi dikelompokkan per assignee).
+            sortedTasks.map((task) => (
+              <ChatBubble key={task.id}>
+                <p className="font-semibold text-[#075E54]">{task.title}</p>
+                <p className="text-xs mt-1">{formatTaskMeta(task)}</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Assignee: <span className="font-medium">{assigneeLabel(task)}</span>
+                </p>
+                {task.description && task.description.trim() !== "" && (
+                  <p className="italic text-slate-500 text-xs mt-1.5">
+                    {task.description}
+                  </p>
+                )}
                 <BubbleMeta />
               </ChatBubble>
             ))
@@ -204,28 +212,5 @@ function CountPill({ label, count }: { label: string; count: number }) {
     <span className="bg-slate-100 rounded-full px-2 py-0.5 text-slate-600">
       {label}: <span className="font-semibold">{count}</span>
     </span>
-  );
-}
-
-function TaskLine({ task }: { task: Task }) {
-  const dueDateText = formatDueDate(task.dueDate);
-
-  const metaParts: string[] = [];
-  if (task.category) metaParts.push(task.category.name);
-  metaParts.push(STATUS_LABEL[task.status]);
-  if (dueDateText) metaParts.push(dueDateText);
-
-  const hasDescription = task.description && task.description.trim() !== "";
-
-  return (
-    <li className="leading-snug">
-      <p>
-        - {task.title} -{" "}
-        <span className="font-semibold">[ {metaParts.join(" | ")} ]</span>
-      </p>
-      {hasDescription && (
-        <p className="italic text-slate-500 text-xs pl-3 mt-0.5">{task.description}</p>
-      )}
-    </li>
   );
 }

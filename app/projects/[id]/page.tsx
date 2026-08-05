@@ -13,21 +13,16 @@ import {
   Project,
   ProjectMember as ProjectMemberType,
 } from "@/lib/types";
-import BoardColumn from "@/components/BoardColumn";
+import TaskListTree from "@/components/TaskListTree";
 import FilterBar from "@/components/FilterBar";
 import TaskFormModal, { TaskFormData } from "@/components/TaskFormModal";
 import MemberList from "@/components/MemberList";
 import AddMemberModal from "@/components/AddMemberModal";
 import CategoryManager from "@/components/CategoryManager";
 import WhatsAppReportModal from "@/components/WhatsAppReportModal";
+import TaskHistoryList from "@/components/TaskHistoryList";
 
-const COLUMNS: { status: Status; label: string }[] = [
-  { status: "TODO", label: "To Do" },
-  { status: "IN_PROGRESS", label: "In Progress" },
-  { status: "DONE", label: "Done" },
-];
-
-type Tab = "board" | "members";
+type Tab = "board" | "members" | "history";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -54,6 +49,12 @@ export default function ProjectDetailPage() {
   const [reportTasks, setReportTasks] = useState<Task[]>([]);
   const [isReportLoading, setIsReportLoading] = useState(false);
 
+  // History: task DONE yang sudah lewat H+1, diambil terpisah dari task
+  // aktif (lihat query param view=history di GET /api/tasks).
+  const [historyTasks, setHistoryTasks] = useState<Task[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
   // --- Fetch helpers ---
   const fetchProject = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}`);
@@ -61,8 +62,10 @@ export default function ProjectDetailPage() {
     setProject(await res.json());
   }, [projectId]);
 
+  // view=active (default) -> task DONE yang sudah lewat 24 jam otomatis
+  // disembunyikan dari sini karena sudah "pindah" ke tab History.
   const fetchTasks = useCallback(async () => {
-    const params = new URLSearchParams({ projectId });
+    const params = new URLSearchParams({ projectId, view: "active" });
     if (categoryFilter) params.set("categoryId", categoryFilter);
     if (assigneeFilter) params.set("assigneeId", assigneeFilter);
 
@@ -70,6 +73,23 @@ export default function ProjectDetailPage() {
     if (!res.ok) throw new Error("Gagal mengambil task");
     setTasks(await res.json());
   }, [projectId, categoryFilter, assigneeFilter]);
+
+  // view=history -> HANYA task DONE yang sudah lewat H+1. Dipanggil malas
+  // (lazy), hanya saat tab History pertama kali dibuka, supaya tidak
+  // menambah beban fetch di kunjungan awal halaman.
+  const fetchHistoryTasks = useCallback(async () => {
+    setIsHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/tasks?projectId=${projectId}&view=history`);
+      if (!res.ok) throw new Error();
+      setHistoryTasks(await res.json());
+      setHistoryLoaded(true);
+    } catch {
+      setErrorMsg("Gagal memuat riwayat task");
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, [projectId]);
 
   useEffect(() => {
     async function loadInitialData() {
@@ -94,11 +114,23 @@ export default function ProjectDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  // Muat data History begitu tab-nya pertama kali dibuka. Dibungkus
+  // setTimeout(0) supaya pemanggilan fetch (yang ujung-ujungnya setState)
+  // tidak terjadi sinkron di body effect.
+  useEffect(() => {
+    if (activeTab === "history" && !historyLoaded) {
+      const timer = setTimeout(() => {
+        fetchHistoryTasks();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, historyLoaded, fetchHistoryTasks]);
+
   // --- Filter handlers (fetch ulang task saat filter berubah) ---
   async function handleCategoryFilterChange(value: string) {
     setCategoryFilter(value);
     try {
-      const params = new URLSearchParams({ projectId });
+      const params = new URLSearchParams({ projectId, view: "active" });
       if (value) params.set("categoryId", value);
       if (assigneeFilter) params.set("assigneeId", assigneeFilter);
       const res = await fetch(`/api/tasks?${params.toString()}`);
@@ -112,7 +144,7 @@ export default function ProjectDetailPage() {
   async function handleAssigneeFilterChange(value: string) {
     setAssigneeFilter(value);
     try {
-      const params = new URLSearchParams({ projectId });
+      const params = new URLSearchParams({ projectId, view: "active" });
       if (categoryFilter) params.set("categoryId", categoryFilter);
       if (value) params.set("assigneeId", value);
       const res = await fetch(`/api/tasks?${params.toString()}`);
@@ -152,7 +184,10 @@ export default function ProjectDetailPage() {
     }
   }
 
-  async function handleDropTask(taskId: string, newStatus: Status) {
+  // Ubah status lewat dropdown di List Tree (menggantikan drag-and-drop
+  // Kanban board sebelumnya). Optimistic update: tampilan berubah duluan,
+  // baru menunggu response server.
+  async function handleStatusChange(taskId: string, newStatus: Status) {
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
     );
@@ -164,8 +199,13 @@ export default function ProjectDetailPage() {
         body: JSON.stringify({ status: newStatus }),
       });
       if (!res.ok) throw new Error();
+      // Task yang baru saja DONE tetap tampil di board sampai H+1 (lihat
+      // filter view=active di backend), jadi tidak perlu fetchTasks ulang.
+      // Tapi kalau nanti tab History sudah pernah dibuka, tandai perlu
+      // refresh berikutnya supaya tetap akurat.
+      setHistoryLoaded(false);
     } catch {
-      setErrorMsg("Gagal memindahkan task, mengembalikan tampilan...");
+      setErrorMsg("Gagal mengubah status, mengembalikan tampilan...");
       await fetchTasks();
     }
   }
@@ -181,14 +221,14 @@ export default function ProjectDetailPage() {
   }
 
   // --- Report handler ---
-  // Report SELALU mengambil semua task project tanpa terpengaruh filter
-  // kategori/assignee yang sedang aktif di tab Kanban Board, supaya laporan
-  // yang dikirim ke WhatsApp benar-benar mencakup seluruh project.
+  // Report SELALU mengambil SEMUA task project (view=all) tanpa terpengaruh
+  // filter kategori/assignee yang sedang aktif, MAUPUN tanpa terpengaruh
+  // pemisahan History — laporan tetap mencakup task yang sudah lama Done.
   async function openReportModal() {
     setIsReportModalOpen(true);
     setIsReportLoading(true);
     try {
-      const res = await fetch(`/api/tasks?projectId=${projectId}`);
+      const res = await fetch(`/api/tasks?projectId=${projectId}&view=all`);
       if (!res.ok) throw new Error();
       setReportTasks(await res.json());
     } catch {
@@ -318,7 +358,7 @@ export default function ProjectDetailPage() {
               : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
         >
-          Kanban Board
+          Daftar Task
         </button>
         <button
           onClick={() => setActiveTab("members")}
@@ -328,6 +368,15 @@ export default function ProjectDetailPage() {
             }`}
         >
           Anggota ({members.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("history")}
+          className={`text-sm font-medium pb-2 border-b-2 transition-colors ${activeTab === "history"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}
+        >
+          History
         </button>
       </div>
 
@@ -347,6 +396,8 @@ export default function ProjectDetailPage() {
             availableUsers={availableUsers}
           />
         </>
+      ) : activeTab === "history" ? (
+        <TaskHistoryList tasks={historyTasks} isLoading={isHistoryLoading} />
       ) : (
         <>
           <div className="mb-3">
@@ -369,19 +420,12 @@ export default function ProjectDetailPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {COLUMNS.map((col) => (
-              <BoardColumn
-                key={col.status}
-                status={col.status}
-                label={col.label}
-                tasks={tasks.filter((t) => t.status === col.status)}
-                onTaskClick={openEditTaskModal}
-                onTaskDelete={handleDeleteTask}
-                onDropTask={handleDropTask}
-              />
-            ))}
-          </div>
+          <TaskListTree
+            tasks={tasks}
+            onTaskClick={openEditTaskModal}
+            onTaskDelete={handleDeleteTask}
+            onStatusChange={handleStatusChange}
+          />
 
           <TaskFormModal
             key={editingTask ? editingTask.id : "new"}

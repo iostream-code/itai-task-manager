@@ -13,6 +13,8 @@ export type User = {
   name: string;
   email: string;
   role: GlobalRole;
+  isActive: boolean;
+  createdAt: string;
 };
 
 // Satu baris keanggotaan: user X di project Y, dengan peran kerja Z

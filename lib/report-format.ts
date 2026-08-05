@@ -7,10 +7,17 @@
 //    tapi render-nya tetap dari sumber data yang sama (task[]) supaya
 //    keduanya selalu konsisten.
 //
-// Catatan: status & kategori ditulis sebagai teks biasa di dalam bracket
-// *[ ... ]* (bold ala WhatsApp). Prioritas TIDAK ditampilkan di report ini.
+// PERUBAHAN: Report sekarang dikelompokkan PER TASK (satu bubble/blok per
+// task, diurutkan berdasarkan status lalu judul), BUKAN per assignee lagi.
+// Nama assignee ditampilkan sebagai salah satu baris info di dalam setiap
+// task, bukan lagi sebagai judul pengelompok.
 
 import { Task, Status, STATUS_LABEL } from "@/lib/types";
+
+// Urutan status saat menampilkan report: task yang masih berjalan duluan,
+// baru yang sudah selesai — supaya perhatian pembaca fokus ke yang belum
+// kelar dulu.
+const STATUS_ORDER: Status[] = ["IN_PROGRESS", "TODO", "DONE"];
 
 // Format tanggal jadi "24-Juni" (tanggal-NamaBulan, tanpa tahun).
 // Dipakai di dalam bracket *[ ... ]*, jadi tidak perlu prefix teks apa pun
@@ -23,53 +30,44 @@ function formatDueDate(dueDate: string | null): string {
   return `${day}-${month}`;
 }
 
-export type AssigneeGroup = {
-  assigneeName: string;
-  tasks: Task[];
-};
-
-// Mengelompokkan task berdasarkan assignee. Task tanpa assignee dikumpulkan
-// di grup terpisah "Belum Ditugaskan" dan selalu ditaruh di akhir, supaya
-// daftar nama orang di atas tetap rapi.
-export function groupTasksByAssignee(tasks: Task[]): AssigneeGroup[] {
-  const groups = new Map<string, AssigneeGroup>();
-  const UNASSIGNED_KEY = "__unassigned__";
-
-  for (const task of tasks) {
-    const key = task.assignee?.id ?? UNASSIGNED_KEY;
-    const name = task.assignee?.name ?? "Belum Ditugaskan";
-
-    if (!groups.has(key)) {
-      groups.set(key, { assigneeName: name, tasks: [] });
-    }
-    groups.get(key)!.tasks.push(task);
-  }
-
-  const result = Array.from(groups.entries());
-  // Urutkan alfabetis by nama, lalu pindahkan grup "Belum Ditugaskan" ke akhir
-  result.sort(([keyA, a], [keyB, b]) => {
-    if (keyA === UNASSIGNED_KEY) return 1;
-    if (keyB === UNASSIGNED_KEY) return -1;
-    return a.assigneeName.localeCompare(b.assigneeName);
+// Mengurutkan task untuk keperluan report: berdasarkan status (urutan
+// STATUS_ORDER di atas), lalu judul secara alfabetis di dalam status yang
+// sama. Dipakai bersama baik oleh render bubble (satu blok per task)
+// maupun generateWhatsAppReportText, supaya urutannya selalu konsisten.
+export function sortTasksForReport(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => {
+    const statusDiff = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
+    if (statusDiff !== 0) return statusDiff;
+    return a.title.localeCompare(b.title);
   });
-
-  return result.map(([, group]) => group);
 }
 
-// Satu baris untuk satu task, dipakai persis sama baik di teks copy
+// Nama assignee yang ditampilkan di setiap baris task ("Belum Ditugaskan"
+// kalau task.assignee null).
+export function assigneeLabel(task: Task): string {
+  return task.assignee?.name ?? "Belum Ditugaskan";
+}
+
+// Satu baris "meta" untuk satu task, dipakai persis sama baik di teks copy
 // maupun di render bubble (supaya tidak ada drift antara dua tampilan).
-// Format: "Judul Task - *[ Kategori | Status | 24-Juni ]*"
+// Format: "*[ Status | Kategori | 24-Juni ]*"
 // Kategori disembunyikan kalau task tidak punya kategori.
 // Tanggal disembunyikan kalau task tidak punya due date.
-export function formatTaskLine(task: Task): string {
-  const metaParts: string[] = [];
+export function formatTaskMeta(task: Task): string {
+  const metaParts: string[] = [STATUS_LABEL[task.status]];
   if (task.category) metaParts.push(task.category.name);
-  metaParts.push(STATUS_LABEL[task.status]);
 
   const dueDateText = formatDueDate(task.dueDate);
   if (dueDateText) metaParts.push(dueDateText);
 
-  return `${task.title} - *[ ${metaParts.join(" | ")} ]*`;
+  return `*[ ${metaParts.join(" | ")} ]*`;
+}
+
+// Dipertahankan untuk kompatibilitas mundur (dipakai sebelumnya saat report
+// masih dikelompokkan per assignee) — sekarang cuma delegasi ke
+// formatTaskMeta, ditempel setelah judul task.
+export function formatTaskLine(task: Task): string {
+  return `${task.title} - ${formatTaskMeta(task)}`;
 }
 
 // Baris deskripsi tambahan di bawah formatTaskLine, HANYA dipanggil kalau
@@ -92,12 +90,14 @@ export function summarizeStatusCounts(tasks: Task[]): Record<Status, number> {
 }
 
 // Generate teks lengkap, format WhatsApp (*bold*), siap di-copy & paste.
+// Sekarang satu blok per TASK (diurutkan lewat sortTasksForReport), dengan
+// nama assignee ditulis sebagai baris info di dalam blok tersebut.
 export function generateWhatsAppReportText(
   projectName: string,
   tasks: Task[],
 ): string {
   const counts = summarizeStatusCounts(tasks);
-  const groups = groupTasksByAssignee(tasks);
+  const sortedTasks = sortTasksForReport(tasks);
   const today = new Date().toLocaleDateString("id-ID", {
     weekday: "long",
     day: "numeric",
@@ -114,18 +114,17 @@ export function generateWhatsAppReportText(
   );
   lines.push("");
 
-  if (tasks.length === 0) {
+  if (sortedTasks.length === 0) {
     lines.push("_Belum ada task di project ini._");
     return lines.join("\n");
   }
 
-  for (const group of groups) {
-    lines.push(`*${group.assigneeName}*`);
-    for (const task of group.tasks) {
-      lines.push(`- ${formatTaskLine(task)}`);
-      if (task.description && task.description.trim() !== "") {
-        lines.push(formatTaskDescriptionLine(task.description));
-      }
+  for (const task of sortedTasks) {
+    lines.push(`*${task.title}*`);
+    lines.push(`${formatTaskMeta(task)}`);
+    lines.push(`Assignee: ${assigneeLabel(task)}`);
+    if (task.description && task.description.trim() !== "") {
+      lines.push(formatTaskDescriptionLine(task.description));
     }
     lines.push("");
   }
