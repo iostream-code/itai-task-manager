@@ -3,7 +3,7 @@
 
 export type Status = "TODO" | "IN_PROGRESS" | "DONE";
 export type Priority = "LOW" | "MEDIUM" | "HIGH";
-export type GlobalRole = "admin" | "member";
+export type GlobalRole = "admin" | "leader" | "staff";
 
 // NOTE: tipe `User` ini dipakai di frontend untuk data publik saja —
 // TIDAK pernah menyertakan field `password`. Field password hanya ada
@@ -15,6 +15,15 @@ export type User = {
   role: GlobalRole;
   isActive: boolean;
   createdAt: string;
+  // Hanya relevan kalau role = "staff": leader yang membawahi user ini.
+  leaderId: string | null;
+  leader?: { id: string; name: string } | null;
+};
+
+export const ROLE_LABEL: Record<GlobalRole, string> = {
+  admin: "Admin",
+  leader: "Leader",
+  staff: "Staff",
 };
 
 // Satu baris keanggotaan: user X di project Y, dengan peran kerja Z

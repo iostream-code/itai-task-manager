@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
-import { User, GlobalRole } from "@/lib/types";
+import { User, GlobalRole, ROLE_LABEL } from "@/lib/types";
 import UserFormModal from "@/components/UserFormModal";
 
 export default function UsersPage() {
   const { data: session, status } = useSession();
   const isAdmin = session?.user?.role === "admin";
+  const isLeader = session?.user?.role === "leader";
+  const canManage = isAdmin || isLeader;
 
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,6 +42,7 @@ export default function UsersPage() {
     name: string;
     email: string;
     role: GlobalRole;
+    leaderId?: string | null;
     password?: string;
   }) {
     const isEditing = editingUser !== null;
@@ -93,11 +96,11 @@ export default function UsersPage() {
     setIsModalOpen(true);
   }
 
-  if (status !== "loading" && !isAdmin) {
+  if (status !== "loading" && !canManage) {
     return (
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
         <div className="text-center text-sm text-red-500 py-20">
-          Halaman ini hanya bisa diakses oleh admin.
+          Halaman ini hanya bisa diakses oleh admin atau leader.
         </div>
       </main>
     );
@@ -109,7 +112,9 @@ export default function UsersPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-800">Anggota</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Semua user di sistem, terlepas dari project. Kelola akun, role, dan status aktif.
+            {isAdmin
+              ? "Semua user di sistem, terlepas dari project. Kelola akun, role, dan status aktif."
+              : "Staf yang melekat padamu. Kelola akun dan status aktif mereka."}
           </p>
         </div>
 
@@ -117,7 +122,7 @@ export default function UsersPage() {
           onClick={openAddModal}
           className="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg shadow-sm transition-colors"
         >
-          + Tambah Anggota
+          + Tambah {isAdmin ? "Anggota" : "Staf"}
         </button>
       </header>
 
@@ -149,18 +154,29 @@ export default function UsersPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">
                       {user.name}
-                      {user.role === "admin" && (
-                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">
-                          Admin
-                        </span>
-                      )}
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                          user.role === "admin"
+                            ? "text-indigo-600 bg-indigo-50"
+                            : user.role === "leader"
+                              ? "text-amber-600 bg-amber-50"
+                              : "text-slate-500 bg-slate-100"
+                        }`}
+                      >
+                        {ROLE_LABEL[user.role]}
+                      </span>
                       {!user.isActive && (
                         <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full">
                           Nonaktif
                         </span>
                       )}
                     </p>
-                    <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                    <p className="text-xs text-slate-400 truncate">
+                      {user.email}
+                      {user.role === "staff" && user.leader && (
+                        <span className="text-slate-400"> · Leader: {user.leader.name}</span>
+                      )}
+                    </p>
                   </div>
                 </div>
 
@@ -194,6 +210,7 @@ export default function UsersPage() {
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleSubmitUser}
         user={editingUser}
+        currentUserRole={(session?.user?.role as GlobalRole) ?? "staff"}
       />
     </main>
   );

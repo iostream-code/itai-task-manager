@@ -51,6 +51,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           name: user.name,
           email: user.email,
           role: user.role,
+          leaderId: user.leaderId,
         };
       },
     }),
@@ -61,6 +62,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.id = user.id;
         token.role = (user as { role?: string }).role;
+        token.leaderId = (user as { leaderId?: string | null }).leaderId ?? null;
       }
       return token;
     },
@@ -69,7 +71,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.role = token.role as "admin" | "member";
+        session.user.role = token.role as "admin" | "leader" | "staff";
+        session.user.leaderId = (token.leaderId as string | null) ?? null;
       }
       return session;
     },

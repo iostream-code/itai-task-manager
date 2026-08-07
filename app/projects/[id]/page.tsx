@@ -39,6 +39,10 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "admin";
+  const isLeader = session?.user?.role === "leader";
+  // Admin & leader boleh kelola anggota project (leader terbatas ke dirinya
+  // sendiri/stafnya sendiri — sudah ditegakkan di API). Staff tidak boleh.
+  const canManageMembers = isAdmin || isLeader;
 
   // Kalau id di URL tidak valid, langsung lempar balik ke /projects alih-alih
   // mencoba fetch (yang pasti gagal) dan menampilkan pesan error generic yang
@@ -498,7 +502,7 @@ export default function ProjectDetailPage() {
         <>
           <MemberList
             members={members}
-            isAdmin={isAdmin}
+            isAdmin={canManageMembers}
             onAddClick={() => setIsMemberModalOpen(true)}
             onRemove={handleRemoveMember}
             onUpdateRole={handleUpdateMemberRole}
@@ -527,6 +531,7 @@ export default function ProjectDetailPage() {
             task={editingTask}
             users={members.map((m) => m.user)}
             categories={categories}
+            currentUser={session?.user ? { id: session.user.id, name: session.user.name ?? "", role: session.user.role } : null}
           />
         </>
       ) : (
@@ -568,6 +573,7 @@ export default function ProjectDetailPage() {
             users={members.map((m) => m.user)}
             categories={categories}
             parentTask={parentTaskForSubtask}
+            currentUser={session?.user ? { id: session.user.id, name: session.user.name ?? "", role: session.user.role } : null}
           />
         </>
       )}

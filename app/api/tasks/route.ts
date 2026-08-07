@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { canAccessProject } from "@/lib/auth-helpers";
+import { canAccessProject, canAssignTo, getCurrentUser, getTaskScopeUserIds } from "@/lib/auth-helpers";
 
 // Ambang waktu "History": task berstatus DONE yang statusnya (updatedAt)
 // sudah lebih dari 24 jam yang lalu dianggap masuk History, dan disembunyikan
@@ -62,6 +62,15 @@ export async function GET(request: NextRequest) {
   if (status) where.status = status;
   if (categoryId) where.categoryId = categoryId;
   if (assigneeId) where.assigneeId = assigneeId;
+
+  // Scope role: admin lihat semua, leader hanya dirinya+staffnya, staff
+  // hanya dirinya sendiri. null = tidak ada batasan (admin).
+  const scopeUserIds = await getTaskScopeUserIds();
+  if (scopeUserIds !== null) {
+    where.assigneeId = assigneeId
+      ? (scopeUserIds.includes(assigneeId) ? assigneeId : "__no_match__")
+      : { in: scopeUserIds };
+  }
 
   const historyCutoff = new Date(Date.now() - HISTORY_THRESHOLD_MS);
 
@@ -159,6 +168,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Staff HANYA boleh membuat task yang ter-assign ke dirinya sendiri.
+    // Kalau staff tidak mengisi assigneeId sama sekali, defaultkan ke
+    // dirinya sendiri (bukan dibiarkan null) supaya task tidak "hilang"
+    // dari scope-nya sendiri.
+    const currentUser = await getCurrentUser();
+    let finalAssigneeId: string | null = assigneeId || null;
+    if (currentUser?.role === "staff") {
+      finalAssigneeId = currentUser.id;
+    } else if (finalAssigneeId) {
+      const allowed = await canAssignTo(finalAssigneeId);
+      if (!allowed) {
+        return NextResponse.json(
+          { error: "Kamu tidak boleh menugaskan task ke user ini" },
+          { status: 403 }
+        );
+      }
+    }
+
     // Validasi subtask 1 LEVEL SAJA: kalau parentId diisi, task induknya
     // WAJIB ada, satu project yang sama, dan task induk itu sendiri BUKAN
     // subtask (parentId-nya sendiri harus null) — supaya tidak ada rantai
@@ -177,6 +204,16 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      const scopeUserIdsForParent = await getTaskScopeUserIds();
+      if (
+        scopeUserIdsForParent !== null &&
+        (!parentTask.assigneeId || !scopeUserIdsForParent.includes(parentTask.assigneeId))
+      ) {
+        return NextResponse.json(
+          { error: "Kamu tidak punya akses ke task induk ini" },
+          { status: 403 }
+        );
+      }
     }
 
     const task = await prisma.task.create({
@@ -186,7 +223,7 @@ export async function POST(request: NextRequest) {
         status: status || "TODO",
         priority: priority || "MEDIUM",
         dueDate: dueDate ? new Date(dueDate) : null,
-        assigneeId: assigneeId || null,
+        assigneeId: finalAssigneeId,
         categoryId: categoryId || null,
         projectId,
         parentId: parentId || null,

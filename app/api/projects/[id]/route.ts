@@ -16,10 +16,19 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     );
   }
 
+  const currentUser = await getCurrentUser();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const memberWhere: Record<string, any> = {};
+  if (currentUser?.role === "leader") {
+    memberWhere.user = { OR: [{ id: currentUser.id }, { leaderId: currentUser.id }] };
+  } else if (currentUser?.role === "staff") {
+    memberWhere.userId = currentUser.id;
+  }
+
   const project = await prisma.project.findUnique({
     where: { id },
     include: {
-      members: { include: { user: true } },
+      members: { where: memberWhere, include: { user: true } },
     },
   });
 

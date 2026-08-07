@@ -4,7 +4,7 @@ import Providers from "./providers";
 import Navbar from "@/components/Navbar";
 
 export const metadata: Metadata = {
-  title: "Task Manager - Tim IT",
+  title: "Korin Task Management",
   description: "Aplikasi manajemen task sederhana untuk tim IT internal",
 };
 

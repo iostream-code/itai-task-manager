@@ -16,6 +16,10 @@ type TaskFormModalProps = {
   // (task tidak null) — subtask tidak bisa "dipindah induk" lewat form ini,
   // lihat catatan di app/api/tasks/[id]/route.ts.
   parentTask?: Task | null;
+  // User yang sedang login. Kalau role-nya "staff", dropdown "Assign ke"
+  // dikunci ke dirinya sendiri (read-only) — staff hanya boleh membuat/
+  // mengelola task miliknya sendiri, tidak bisa menugaskan ke orang lain.
+  currentUser?: { id: string; name: string; role: "admin" | "leader" | "staff" } | null;
 };
 
 export type TaskFormData = {
@@ -48,7 +52,10 @@ export default function TaskFormModal({
   users,
   categories,
   parentTask = null,
+  currentUser = null,
 }: TaskFormModalProps) {
+  const isStaff = currentUser?.role === "staff";
+
   // Bangun nilai awal form langsung dari prop `task`.
   // Dipakai sebagai initializer function useState (hanya jalan sekali saat mount).
   // Supaya form ini "reset" tiap kali modal dibuka untuk task yang berbeda,
@@ -58,8 +65,13 @@ export default function TaskFormModal({
   function buildInitialForm(): TaskFormData {
     if (!task) {
       // Mode tambah baru. Kalau ada parentTask, ini tambah SUBTASK —
-      // sertakan parentId-nya dari awal.
-      return { ...EMPTY_FORM, parentId: parentTask?.id ?? "" };
+      // sertakan parentId-nya dari awal. Staff selalu default assign ke
+      // dirinya sendiri (dan tidak bisa diubah, lihat dropdown di bawah).
+      return {
+        ...EMPTY_FORM,
+        parentId: parentTask?.id ?? "",
+        assigneeId: isStaff && currentUser ? currentUser.id : "",
+      };
     }
     return {
       title: task.title,
@@ -200,18 +212,29 @@ export default function TaskFormModal({
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Assign ke
               </label>
-              <select
-                value={form.assigneeId}
-                onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              >
-                <option value="">— Belum ditugaskan —</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
+              {isStaff ? (
+                <>
+                  <div className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500">
+                    {currentUser?.name} (kamu)
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Task yang kamu buat selalu ter-assign ke dirimu sendiri.
+                  </p>
+                </>
+              ) : (
+                <select
+                  value={form.assigneeId}
+                  onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                >
+                  <option value="">— Belum ditugaskan —</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div>

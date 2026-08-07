@@ -15,13 +15,19 @@ datasource db {
 }
 
 // Role GLOBAL user di seluruh aplikasi.
-// "admin"  -> boleh membuat/menghapus Project, mengatur anggota Project,
-//             mengatur User lain.
-// "member" -> hanya bisa melihat & bekerja di Project tempat dia terdaftar
-//             sebagai anggota (lewat ProjectMember).
+// "admin"  -> all access: semua Project, semua User, semua Task, tanpa batas.
+// "leader" -> hanya bisa melihat & bekerja di Project tempat dia terdaftar
+//             sebagai anggota (lewat ProjectMember), dan HANYA melihat task
+//             miliknya sendiri + task milik staff yang leaderId-nya = dia.
+//             Staff milik leader lain (meski member project yang sama)
+//             tetap tersembunyi baginya.
+// "staff"  -> hanya bisa melihat & bekerja pada task miliknya sendiri
+//             (assignee = dirinya). Selalu melekat pada satu leader lewat
+//             field User.leaderId.
 enum GlobalRole {
   admin
-  member
+  leader
+  staff
 }
 
 // Tabel user (anggota tim) + kredensial login
@@ -30,12 +36,23 @@ model User {
   name         String
   email        String     @unique
   password     String // hash bcrypt, JANGAN simpan plain text
-  role         GlobalRole @default(member)
+  role         GlobalRole @default(staff)
   // User nonaktif tidak bisa login (dicek di auth.ts saat authorize),
   // tapi datanya tetap disimpan (task yang pernah di-assign ke dia,
   // riwayat keanggotaan project, dst tidak hilang/berubah).
   isActive     Boolean    @default(true)
   createdAt    DateTime   @default(now())
+
+  // Leader dari user ini (HANYA relevan kalau role = staff). Menentukan
+  // "scope" siapa yang boleh melihat/mengelola task milik staff ini —
+  // dicek di lib/auth-helpers.ts, bukan hanya cek keanggotaan project.
+  // Null untuk user dengan role admin/leader.
+  leader   User?   @relation("LeaderStaff", fields: [leaderId], references: [id])
+  leaderId String?
+
+  // Kebalikannya: daftar staff yang melekat ke user ini (relevan kalau
+  // role = leader).
+  staff User[] @relation("LeaderStaff")
 
   // Task yang di-assign ke user ini (lintas project)
   tasks Task[]

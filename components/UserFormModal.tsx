@@ -10,12 +10,17 @@ type UserFormModalProps = {
     name: string;
     email: string;
     role: GlobalRole;
+    leaderId?: string | null;
     password?: string;
   }) => Promise<void>;
   // Kalau diberikan, modal masuk mode EDIT (prefill dari data user ini,
   // password jadi opsional — kosongkan berarti "jangan ganti password").
   // Kalau null/undefined, modal mode TAMBAH user baru (password wajib).
   user?: User | null;
+  // Role user yang sedang login — menentukan pilihan role yang tersedia.
+  // admin -> bebas pilih admin/leader/staff. leader -> selalu staff, tidak
+  // ada pilihan (otomatis melekat ke leader itu sendiri).
+  currentUserRole: GlobalRole;
 };
 
 export default function UserFormModal({
@@ -23,12 +28,14 @@ export default function UserFormModal({
   onClose,
   onSubmit,
   user = null,
+  currentUserRole,
 }: UserFormModalProps) {
   const isEditing = user !== null;
+  const canPickRole = currentUserRole === "admin";
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<GlobalRole>("member");
+  const [role, setRole] = useState<GlobalRole>("staff");
   const [password, setPassword] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -42,7 +49,7 @@ export default function UserFormModal({
       const timer = setTimeout(() => {
         setName(user?.name ?? "");
         setEmail(user?.email ?? "");
-        setRole(user?.role ?? "member");
+        setRole(user?.role ?? "staff");
         setPassword("");
         setError("");
       }, 0);
@@ -74,7 +81,7 @@ export default function UserFormModal({
       await onSubmit({
         name: name.trim(),
         email: email.trim(),
-        role,
+        role: canPickRole ? role : "staff",
         ...(password !== "" ? { password } : {}),
       });
       onClose();
@@ -140,27 +147,45 @@ export default function UserFormModal({
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="nama@indokoper.id"
+              placeholder="nama@koperindo.id"
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Role Global
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as GlobalRole)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-            <p className="text-xs text-slate-400 mt-1">
-              Admin otomatis punya akses ke semua project.
-            </p>
-          </div>
+          {canPickRole ? (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Role Global
+              </label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as GlobalRole)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              >
+                <option value="staff">Staff</option>
+                <option value="leader">Leader</option>
+                <option value="admin">Admin</option>
+              </select>
+              <p className="text-xs text-slate-400 mt-1">
+                Admin punya akses ke semua project. Leader hanya melihat project miliknya
+                & scope stafnya sendiri. Staff hanya membuat user baru berperan Staff yang
+                melekat pada dirinya kalau tidak ditentukan leader lain.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Role Global
+              </label>
+              <div className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500">
+                Staff
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                User baru yang kamu tambahkan otomatis berperan Staff dan melekat padamu
+                sebagai leader.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">

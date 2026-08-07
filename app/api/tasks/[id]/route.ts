@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { canAccessProject } from "@/lib/auth-helpers";
+import { canAccessProject, canAccessTask, canAssignTo, getCurrentUser } from "@/lib/auth-helpers";
 
 // Di Next.js 15+, params sekarang berupa Promise — harus di-await.
 type RouteParams = { params: Promise<{ id: string }> };
@@ -23,6 +23,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Tidak punya akses" }, { status: 403 });
   }
 
+  const inScope = await canAccessTask(task.assigneeId);
+  if (!inScope) {
+    return NextResponse.json({ error: "Tidak punya akses ke task ini" }, { status: 403 });
+  }
+
   return NextResponse.json(task);
 }
 
@@ -43,9 +48,34 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Tidak punya akses" }, { status: 403 });
   }
 
+  const inScope = await canAccessTask(existingTask.assigneeId);
+  if (!inScope) {
+    return NextResponse.json({ error: "Tidak punya akses ke task ini" }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { title, description, status, priority, dueDate, assigneeId, categoryId } = body;
+
+    // Staff tidak boleh memindahkan task ke assignee lain — task yang dia
+    // kelola harus selalu tetap miliknya sendiri.
+    const currentUser = await getCurrentUser();
+    if (assigneeId !== undefined && currentUser?.role === "staff" && assigneeId !== currentUser.id) {
+      return NextResponse.json(
+        { error: "Kamu tidak boleh memindahkan task ini ke user lain" },
+        { status: 403 }
+      );
+    }
+    // Leader hanya boleh assign ke dirinya sendiri atau staff-nya sendiri.
+    if (assigneeId !== undefined && assigneeId) {
+      const allowed = await canAssignTo(assigneeId);
+      if (!allowed) {
+        return NextResponse.json(
+          { error: "Kamu tidak boleh menugaskan task ke user ini" },
+          { status: 403 }
+        );
+      }
+    }
 
     // CATATAN: parentId SENGAJA tidak bisa diubah lewat PATCH ini (tidak
     // dibaca dari body sama sekali). "Pindah induk" atau "ubah subtask jadi
@@ -88,6 +118,11 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   const hasAccess = await canAccessProject(existingTask.projectId);
   if (!hasAccess) {
     return NextResponse.json({ error: "Tidak punya akses" }, { status: 403 });
+  }
+
+  const inScope = await canAccessTask(existingTask.assigneeId);
+  if (!inScope) {
+    return NextResponse.json({ error: "Tidak punya akses ke task ini" }, { status: 403 });
   }
 
   try {

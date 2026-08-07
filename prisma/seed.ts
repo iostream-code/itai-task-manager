@@ -21,30 +21,53 @@ async function main() {
   const defaultPassword = await hash("password123", 12);
 
   // Buat anggota tim IT.
-  // itai jadi admin GLOBAL — dia bisa membuat project & mengatur anggota.
-  const [itai, aryak, crysna] = await Promise.all([
+  // itai jadi admin GLOBAL (all access). market & finance jadi leader.
+  // aryak & crysna jadi staff, masing-masing melekat ke salah satu leader.
+  const itai = await prisma.user.create({
+    data: {
+      name: "IT AI",
+      email: "itai@koperindo.id",
+      password: defaultPassword,
+      role: "admin",
+    },
+  });
+
+  const [market, finance] = await Promise.all([
     prisma.user.create({
       data: {
-        name: "IT AI",
-        email: "itai@indokoper.id",
+        name: "Leader Marketing",
+        email: "market@koperindo.id",
         password: defaultPassword,
-        role: "admin",
+        role: "leader",
       },
     }),
     prisma.user.create({
       data: {
-        name: "Aryakkk",
-        email: "aryak@indokoper.id",
+        name: "Leader Finance",
+        email: "finance@koperindo.id",
         password: defaultPassword,
-        role: "member",
+        role: "leader",
+      },
+    }),
+  ]);
+
+  const [aryak, crysna] = await Promise.all([
+    prisma.user.create({
+      data: {
+        name: "Aryakkk",
+        email: "aryak@koperindo.id",
+        password: defaultPassword,
+        role: "staff",
+        leaderId: market.id,
       },
     }),
     prisma.user.create({
       data: {
         name: "Crysna Wima",
-        email: "crysna@indokoper.id",
+        email: "crysna@koperindo.id",
         password: defaultPassword,
-        role: "member",
+        role: "staff",
+        leaderId: finance.id,
       },
     }),
   ]);
@@ -58,6 +81,8 @@ async function main() {
       members: {
         create: [
           { userId: itai.id, role: "Project Manager" },
+          { userId: market.id, role: "Leader Marketing" },
+          { userId: finance.id, role: "Leader Finance" },
           { userId: aryak.id, role: "Fullstack Developer" },
           { userId: crysna.id, role: "Fullstack Developer" },
         ],
@@ -114,9 +139,11 @@ async function main() {
   console.log("Seeding selesai!");
   console.log("");
   console.log("Akun contoh (semua pakai password: password123):");
-  console.log("  Admin  -> itai@indokoper.id");
-  console.log("  Member -> aryak@indokoper.id");
-  console.log("  Member -> crysna@indokoper.id");
+  console.log("  Admin  -> itai@koperindo.id");
+  console.log("  Leader -> market@koperindo.id");
+  console.log("  Leader -> finance@koperindo.id");
+  console.log("  Staff  -> aryak@koperindo.id (leader: market)");
+  console.log("  Staff  -> crysna@koperindo.id (leader: finance)");
 }
 
 main()

@@ -11,11 +11,17 @@ const PUBLIC_USER_FIELDS = {
   role: true,
   isActive: true,
   createdAt: true,
+  leaderId: true,
+  leader: { select: { id: true, name: true } },
 } as const;
 
-// GET /api/users — daftar semua user, dipakai untuk dropdown "assign ke"
-// dan dropdown "tambah anggota project". Siapa pun yang sudah login boleh
-// melihat daftar nama dasar (tidak ada data sensitif yang diekspos).
+// GET /api/users — daftar user, dipakai untuk dropdown "assign ke"
+// dan dropdown "tambah anggota project", serta halaman /users.
+//
+// Scope per role (konsisten dengan scope task, lihat lib/auth-helpers.ts):
+//   - admin  -> semua user
+//   - leader -> dirinya sendiri + staff yang leaderId = dirinya
+//   - staff  -> dirinya sendiri saja (staff tidak assign ke orang lain)
 //
 // Query opsional: ?includeInactive=1 supaya user nonaktif ikut ditampilkan
 // (dipakai di halaman Anggota/admin). Secara default (dipakai dropdown
@@ -30,35 +36,64 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const includeInactive = searchParams.get("includeInactive") === "1";
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: Record<string, any> = includeInactive ? {} : { isActive: true };
+
+  if (currentUser.role === "leader") {
+    where.OR = [{ id: currentUser.id }, { leaderId: currentUser.id }];
+  } else if (currentUser.role === "staff") {
+    where.id = currentUser.id;
+  }
+  // admin: tidak ada batasan tambahan
+
   const users = await prisma.user.findMany({
-    where: includeInactive ? undefined : { isActive: true },
+    where,
     select: PUBLIC_USER_FIELDS,
     orderBy: { name: "asc" },
   });
   return NextResponse.json(users);
 }
 
-// POST /api/users — tambah anggota tim baru (hanya admin).
-// Body: { name, email, password, role }
+// Domain email resmi tim — semua user baru wajib pakai domain ini.
+const EMAIL_DOMAIN = "@koperindo.id";
+
+// POST /api/users — tambah anggota tim baru.
+// Body: { name, email, password, role, leaderId }
+//
+// Siapa boleh membuat siapa:
+//   - admin  -> boleh membuat user dengan role apa saja (admin/leader/staff).
+//               Kalau admin membuat staff tanpa leaderId eksplisit, staff
+//               itu otomatis "melekat" ke admin itu sendiri (admin bisa
+//               membuat staffnya sendiri, sama seperti leader).
+//   - leader -> hanya boleh membuat staff, dan staff itu otomatis melekat
+//               ke dirinya sendiri (leaderId dipaksa = currentUser.id,
+//               mengabaikan leaderId apa pun yang dikirim dari client).
+//   - staff  -> tidak boleh membuat user sama sekali.
 export async function POST(request: NextRequest) {
   const currentUser = await getCurrentUser();
   if (!currentUser) {
     return NextResponse.json({ error: "Belum login" }, { status: 401 });
   }
-  if (currentUser.role !== "admin") {
+  if (currentUser.role === "staff") {
     return NextResponse.json(
-      { error: "Hanya admin yang bisa menambah user" },
+      { error: "Kamu tidak punya izin untuk menambah user" },
       { status: 403 },
     );
   }
 
   try {
     const body = await request.json();
-    const { name, email, password, role } = body;
+    const { name, email, password, role, leaderId } = body;
 
     if (!name || !email || !password) {
       return NextResponse.json(
         { error: "Nama, email, dan password wajib diisi" },
+        { status: 400 },
+      );
+    }
+    if (typeof email !== "string" || !email.toLowerCase().endsWith(EMAIL_DOMAIN)) {
+      return NextResponse.json(
+        { error: `Email wajib menggunakan domain ${EMAIL_DOMAIN}` },
         { status: 400 },
       );
     }
@@ -69,6 +104,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Tentukan role & leaderId final berdasarkan siapa yang membuat.
+    let finalRole: "admin" | "leader" | "staff";
+    let finalLeaderId: string | null;
+
+    if (currentUser.role === "leader") {
+      // Leader hanya boleh membuat staff, otomatis jadi stafnya sendiri.
+      finalRole = "staff";
+      finalLeaderId = currentUser.id;
+    } else {
+      // admin
+      finalRole = role === "admin" || role === "leader" || role === "staff" ? role : "staff";
+      if (finalRole === "staff") {
+        // Kalau admin tidak menentukan leaderId, staff ini melekat ke admin
+        // itu sendiri (admin bisa membuat & membawahi staffnya sendiri).
+        finalLeaderId = leaderId || currentUser.id;
+      } else {
+        finalLeaderId = null; // admin/leader tidak punya leaderId
+      }
+    }
+
     const hashedPassword = await hash(password, 12);
 
     const user = await prisma.user.create({
@@ -76,7 +131,8 @@ export async function POST(request: NextRequest) {
         name,
         email,
         password: hashedPassword,
-        role: role === "admin" ? "admin" : "member",
+        role: finalRole,
+        leaderId: finalLeaderId,
         isActive: true,
       },
       select: PUBLIC_USER_FIELDS,

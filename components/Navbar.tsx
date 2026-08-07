@@ -29,13 +29,16 @@ export default function Navbar() {
   if (status === "loading" || !session) return null;
 
   const isAdmin = session.user.role === "admin";
+  const isLeader = session.user.role === "leader";
+  const roleLabel =
+    session.user.role === "admin" ? "Admin" : session.user.role === "leader" ? "Leader" : "Staff";
 
   return (
     <header className="border-b border-slate-200 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
         <div className="flex items-center gap-6 min-w-0">
           <Link href="/projects" className="font-semibold text-slate-800 text-sm shrink-0">
-            Task Manager — Tim IT
+            Korin Task Management
           </Link>
 
           <nav className="flex items-center gap-4">
@@ -44,7 +47,7 @@ export default function Navbar() {
               label="Project"
               active={pathname.startsWith("/projects")}
             />
-            {isAdmin && (
+            {(isAdmin || isLeader) && (
               <NavLink
                 href="/users"
                 label="Anggota"
@@ -57,9 +60,7 @@ export default function Navbar() {
         <div className="flex items-center gap-3 shrink-0">
           <span className="text-sm text-slate-500">
             {session.user.name}{" "}
-            <span className="text-xs text-slate-400">
-              ({session.user.role === "admin" ? "Admin" : "Member"})
-            </span>
+            <span className="text-xs text-slate-400">({roleLabel})</span>
           </span>
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
