@@ -39,7 +39,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   return NextResponse.json(project);
 }
 
-// PATCH /api/projects/:id — update nama/deskripsi project (admin only)
+// PATCH /api/projects/:id — update nama/deskripsi project.
+// Admin bebas. Leader HANYA boleh mengubah project yang dia buat sendiri
+// (createdById = dirinya) — bukan sekadar project yang dia ikuti sebagai
+// anggota. Staff tidak boleh sama sekali.
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
   const user = await getCurrentUser();
@@ -47,9 +50,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   if (!user) {
     return NextResponse.json({ error: "Belum login" }, { status: 401 });
   }
-  if (user.role !== "admin") {
+
+  const existingProject = await prisma.project.findUnique({ where: { id } });
+  if (!existingProject) {
+    return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
+  }
+
+  const isOwner = existingProject.createdById === user.id;
+  if (user.role !== "admin" && !(user.role === "leader" && isOwner)) {
     return NextResponse.json(
-      { error: "Hanya admin yang bisa mengubah project" },
+      { error: "Kamu tidak punya izin untuk mengubah project ini" },
       { status: 403 }
     );
   }
@@ -75,7 +85,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// DELETE /api/projects/:id — hapus project (admin only)
+// DELETE /api/projects/:id — hapus project.
+// Admin bebas. Leader HANYA boleh menghapus project yang dia buat sendiri.
+// Staff tidak boleh sama sekali.
 // Akan ikut menghapus semua Task, Category, dan ProjectMember di project ini
 // (lihat onDelete: Cascade di schema.prisma).
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
@@ -85,9 +97,16 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   if (!user) {
     return NextResponse.json({ error: "Belum login" }, { status: 401 });
   }
-  if (user.role !== "admin") {
+
+  const existingProject = await prisma.project.findUnique({ where: { id } });
+  if (!existingProject) {
+    return NextResponse.json({ error: "Project tidak ditemukan" }, { status: 404 });
+  }
+
+  const isOwner = existingProject.createdById === user.id;
+  if (user.role !== "admin" && !(user.role === "leader" && isOwner)) {
     return NextResponse.json(
-      { error: "Hanya admin yang bisa menghapus project" },
+      { error: "Kamu tidak punya izin untuk menghapus project ini" },
       { status: 403 }
     );
   }

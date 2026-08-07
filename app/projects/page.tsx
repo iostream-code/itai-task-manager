@@ -9,6 +9,17 @@ import ProjectFormModal from "@/components/ProjectFormModal";
 export default function ProjectsPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "admin";
+  const isLeader = session?.user?.role === "leader";
+  // Admin & leader boleh membuat project baru (staff tidak boleh).
+  const canCreateProject = isAdmin || isLeader;
+  // Admin bisa ubah/hapus project apa pun. Leader hanya project yang DIA
+  // buat sendiri — dicek per-kartu lewat project.createdById, bukan cuma
+  // status login global (lihat helper di bawah).
+  function canManageProject(project: Project) {
+    if (isAdmin) return true;
+    if (isLeader) return project.createdById === session?.user?.id;
+    return false;
+  }
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -94,7 +105,7 @@ export default function ProjectsPage() {
           </p>
         </div>
 
-        {isAdmin && (
+        {canCreateProject && (
           <button
             onClick={openAddModal}
             className="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg shadow-sm transition-colors"
@@ -119,7 +130,9 @@ export default function ProjectsPage() {
         <div className="text-center text-sm text-slate-400 py-20 border-2 border-dashed border-slate-200 rounded-xl">
           {isAdmin
             ? "Belum ada project. Klik \"Tambah Project\" untuk membuat yang pertama."
-            : "Kamu belum ditambahkan ke project apa pun. Hubungi admin."}
+            : canCreateProject
+              ? "Kamu belum punya project. Klik \"Tambah Project\" untuk membuat yang pertama, atau hubungi admin untuk ditambahkan ke project yang sudah ada."
+              : "Kamu belum ditambahkan ke project apa pun. Hubungi admin atau leader-mu."}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -129,7 +142,7 @@ export default function ProjectsPage() {
               href={`/projects/${project.id}`}
               className="relative block bg-white border border-slate-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-md transition-all"
             >
-              {isAdmin && (
+              {canManageProject(project) && (
                 <div className="absolute top-3 right-3 flex items-center gap-1">
                   <button
                     onClick={(e) => openEditModal(e, project)}

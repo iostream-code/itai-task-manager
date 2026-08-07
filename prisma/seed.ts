@@ -21,8 +21,10 @@ async function main() {
   const defaultPassword = await hash("password123", 12);
 
   // Buat anggota tim IT.
-  // itai jadi admin GLOBAL (all access). market & finance jadi leader.
-  // aryak & crysna jadi staff, masing-masing melekat ke salah satu leader.
+  // itai jadi admin GLOBAL (all access). market & finance jadi leader,
+  // BELUM punya staf sendiri (dikosongkan dulu, bisa ditambah nanti lewat
+  // halaman /users). aryak & crysna jadi staff milik itai sendiri (admin
+  // juga bisa membawahi staf langsung, sama seperti leader).
   const itai = await prisma.user.create({
     data: {
       name: "IT AI",
@@ -58,7 +60,7 @@ async function main() {
         email: "aryak@koperindo.id",
         password: defaultPassword,
         role: "staff",
-        leaderId: market.id,
+        leaderId: itai.id,
       },
     }),
     prisma.user.create({
@@ -67,7 +69,7 @@ async function main() {
         email: "crysna@koperindo.id",
         password: defaultPassword,
         role: "staff",
-        leaderId: finance.id,
+        leaderId: itai.id,
       },
     }),
   ]);
@@ -140,10 +142,10 @@ async function main() {
   console.log("");
   console.log("Akun contoh (semua pakai password: password123):");
   console.log("  Admin  -> itai@koperindo.id");
-  console.log("  Leader -> market@koperindo.id");
-  console.log("  Leader -> finance@koperindo.id");
-  console.log("  Staff  -> aryak@koperindo.id (leader: market)");
-  console.log("  Staff  -> crysna@koperindo.id (leader: finance)");
+  console.log("  Leader -> market@koperindo.id (belum punya staf)");
+  console.log("  Leader -> finance@koperindo.id (belum punya staf)");
+  console.log("  Staff  -> aryak@koperindo.id (leader: itai)");
+  console.log("  Staff  -> crysna@koperindo.id (leader: itai)");
 }
 
 main()

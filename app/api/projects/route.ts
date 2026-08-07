@@ -3,8 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth-helpers";
 
 // GET /api/projects
-// Admin lihat SEMUA project. Member hanya lihat project yang dia ikuti
-// (lewat ProjectMember).
+// Admin lihat SEMUA project. Leader & staff hanya lihat project yang dia
+// ikuti (lewat ProjectMember) — termasuk project yang dia buat sendiri,
+// karena pembuat otomatis jadi anggota (lihat POST di bawah).
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) {
@@ -27,15 +28,19 @@ export async function GET() {
 }
 
 // POST /api/projects
-// Hanya admin yang boleh membuat project baru.
+// Admin ATAU leader boleh membuat project baru. Staff tidak boleh.
+// Siapa pun yang membuat project otomatis jadi anggota (Project Lead) di
+// project itu — untuk leader, ini penting supaya project barunya langsung
+// masuk scope-nya sendiri (leader hanya melihat project tempat dia jadi
+// anggota, lihat GET di atas & lib/auth-helpers.ts).
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Belum login" }, { status: 401 });
   }
-  if (user.role !== "admin") {
+  if (user.role !== "admin" && user.role !== "leader") {
     return NextResponse.json(
-      { error: "Hanya admin yang bisa membuat project" },
+      { error: "Hanya admin atau leader yang bisa membuat project" },
       { status: 403 }
     );
   }
