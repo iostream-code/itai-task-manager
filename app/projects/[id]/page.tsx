@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { FileDown } from "lucide-react";
+import { FileDown, FileText } from "lucide-react";
 import {
   Task,
   User,
@@ -13,6 +13,7 @@ import {
   Project,
   ProjectMember as ProjectMemberType,
 } from "@/lib/types";
+import { exportTasksToPdf } from "@/lib/pdf-export";
 import TaskListTree from "@/components/TaskListTree";
 import FilterBar from "@/components/FilterBar";
 import TaskFormModal, { TaskFormData } from "@/components/TaskFormModal";
@@ -348,6 +349,28 @@ export default function ProjectDetailPage() {
     }
   }
 
+  // --- Export PDF handler ---
+  // Beda dari Report WA: PDF HANYA mencakup task AKTIF (view=active, sama
+  // seperti yang tampil di tab Daftar Task) — task yang sudah masuk History
+  // (Done > H+1) SENGAJA tidak diikutkan, karena PDF ini dimaksudkan untuk
+  // dokumen status kerja saat ini, bukan arsip. flat=1 supaya subtask ikut
+  // sebagai baris tersendiri (dikelompokkan ke induknya oleh lib/pdf-export.ts).
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  async function handleExportPdf() {
+    if (!project) return;
+    setIsExportingPdf(true);
+    try {
+      const res = await fetch(`/api/tasks?projectId=${projectId}&view=active&flat=1`);
+      if (!res.ok) throw new Error();
+      const activeTasks: Task[] = await res.json();
+      exportTasksToPdf(project.name, activeTasks);
+    } catch {
+      setErrorMsg("Gagal membuat PDF");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }
+
   // --- Member handlers ---
   async function handleAddMember(data: { userId: string; role: string }) {
     const res = await fetch(`/api/projects/${projectId}/members`, {
@@ -441,13 +464,24 @@ export default function ProjectDetailPage() {
           )}
         </div>
 
-        <button
-          onClick={openReportModal}
-          className="text-sm font-medium text-white bg-[#075E54] hover:bg-[#064a44] px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 shrink-0"
-        >
-          <FileDown className="w-4 h-4 shrink-0" aria-hidden="true" />
-          Report
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={handleExportPdf}
+            disabled={isExportingPdf}
+            className="text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <FileText className="w-4 h-4 shrink-0" aria-hidden="true" />
+            {isExportingPdf ? "Membuat PDF..." : "Export PDF"}
+          </button>
+
+          <button
+            onClick={openReportModal}
+            className="text-sm font-medium text-white bg-[#075E54] hover:bg-[#064a44] px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
+          >
+            <FileDown className="w-4 h-4 shrink-0" aria-hidden="true" />
+            Report
+          </button>
+        </div>
       </header>
 
       {errorMsg && (
