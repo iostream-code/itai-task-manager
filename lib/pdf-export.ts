@@ -4,6 +4,14 @@
 // tujuannya beda: report WA untuk dibaca cepat di chat, PDF ini untuk
 // disimpan/dicetak sebagai dokumen.
 //
+// LAYOUT: satu status = mulai di halaman baru (page break paksa), supaya
+// tiap status bisa dicetak/dibaca terpisah tanpa tercampur status lain di
+// halaman yang sama. Kalau isi satu status lebih panjang dari satu halaman,
+// dia tetap boleh meluber ke halaman berikutnya (lihat ensureSpace) — page
+// break paksa HANYA terjadi tepat sebelum status BARU dimulai, bukan di
+// tengah-tengah isi satu status. Status yang tidak punya task SAMA SEKALI
+// tidak ditampilkan (dilewati sepenuhnya, tidak dapat halaman kosong).
+//
 // Dijalankan sepenuhnya di BROWSER (client-side) lewat jsPDF — tidak ada
 // endpoint API baru, generate & download terjadi langsung dari data task
 // yang sudah di-fetch. Konsisten dengan Report WA yang juga tidak
@@ -27,7 +35,7 @@ const STATUS_COLOR: Record<Status, [number, number, number]> = {
 };
 
 function formatDueDateFull(dueDate: string | null): string {
-  if (!dueDate) return "Tanpa tenggat";
+  if (!dueDate) return "Belum ditentukan";
   const date = new Date(dueDate);
   return date.toLocaleDateString("id-ID", {
     day: "numeric",
@@ -111,11 +119,19 @@ export function exportTasksToPdf(projectName: string, tasks: Task[]): void {
   doc.setTextColor(0);
 
   const grouped = groupTasksByStatus(tasks);
+  const statusesWithTasks = STATUS_ORDER.filter((status) => grouped[status].length > 0);
 
-  for (const status of STATUS_ORDER) {
+  statusesWithTasks.forEach((status, index) => {
     const items = grouped[status];
 
-    ensureSpace(40);
+    // Setiap status yang punya task dimulai di halaman baru — kecuali
+    // status PERTAMA yang ditampilkan, yang cukup lanjut di halaman header
+    // yang sudah dibuat di atas (supaya tidak ada halaman kosong nganggur
+    // di awal dokumen).
+    if (index > 0) {
+      doc.addPage();
+      y = 50;
+    }
 
     // --- Judul grup status ---
     const [r, g, b] = STATUS_COLOR[status];
@@ -128,24 +144,20 @@ export function exportTasksToPdf(projectName: string, tasks: Task[]): void {
     doc.setTextColor(0);
     y += 18;
 
-    if (items.length === 0) {
-      doc.setFont("helvetica", "italic");
-      doc.setFontSize(10);
-      doc.setTextColor(150);
-      doc.text("Tidak ada task di status ini.", marginX + 12, y);
-      doc.setTextColor(0);
-      y += 20;
-      continue;
-    }
-
     for (const { parent, children } of items) {
       y = renderTaskBlock(doc, parent, marginX, y, maxTextWidth, ensureSpace, false);
       for (const child of children) {
         y = renderTaskBlock(doc, child, marginX, y, maxTextWidth, ensureSpace, true);
       }
     }
+  });
 
-    y += 10; // jarak antar grup status
+  if (statusesWithTasks.length === 0) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(10);
+    doc.setTextColor(150);
+    doc.text("Belum ada task aktif di project ini.", marginX, y);
+    doc.setTextColor(0);
   }
 
   const fileSafeName = projectName.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
