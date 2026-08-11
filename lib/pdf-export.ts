@@ -22,9 +22,21 @@
 // tepat di bawah task induknya dalam status yang sama.
 
 import { jsPDF } from "jspdf";
-import { Task, Status, STATUS_LABEL, PRIORITY_LABEL } from "@/lib/types";
+import { Task, Status, PRIORITY_LABEL } from "@/lib/types";
+import { EXPORT_STATUS_LABEL } from "@/lib/report-format";
 
 const STATUS_ORDER: Status[] = ["TODO", "IN_PROGRESS", "DONE"];
+
+// Bandingkan due date: yang paling dekat duluan, task tanpa due date sama
+// sekali ditaruh PALING AKHIR. Sama seperti byDueDate di report-format.ts,
+// diduplikasi kecil di sini supaya pdf-export.ts tidak perlu impor internal
+// yang tidak di-export dari file lain.
+function byDueDate(a: Task, b: Task): number {
+  if (!a.dueDate && !b.dueDate) return a.title.localeCompare(b.title);
+  if (!a.dueDate) return 1;
+  if (!b.dueDate) return -1;
+  return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+}
 
 // Warna header per status (RGB), dipakai untuk garis/badge kecil di PDF
 // supaya tiap grup status mudah dibedakan sekilas.
@@ -54,7 +66,12 @@ function assigneeLabel(task: Task): string {
 // daftar tunggal berurutan) — task dikelompokkan ke status TASK INDUK-nya,
 // subtask ikut di situ juga meski status subtask itu sendiri berbeda,
 // supaya struktur task->subtask tidak terpecah ke grup status yang beda.
-function groupTasksByStatus(tasks: Task[]): Record<Status, { parent: Task; children: Task[] }[]> {
+// Di dalam tiap status, task (dan subtask-nya) diurutkan berdasarkan due
+// date paling dekat -> paling jauh, task tanpa due date ditaruh paling
+// akhir (lihat byDueDate di atas).
+function groupTasksByStatus(
+  tasks: Task[],
+): Record<Status, { parent: Task; children: Task[] }[]> {
   const topLevel = tasks.filter((t) => !t.parentId);
   const subtasksByParent = new Map<string, Task[]>();
   for (const t of tasks) {
@@ -70,10 +87,8 @@ function groupTasksByStatus(tasks: Task[]): Record<Status, { parent: Task; child
     DONE: [],
   };
 
-  for (const parent of [...topLevel].sort((a, b) => a.title.localeCompare(b.title))) {
-    const children = (subtasksByParent.get(parent.id) ?? []).sort((a, b) =>
-      a.title.localeCompare(b.title)
-    );
+  for (const parent of [...topLevel].sort(byDueDate)) {
+    const children = (subtasksByParent.get(parent.id) ?? []).sort(byDueDate);
     result[parent.status].push({ parent, children });
   }
 
@@ -114,12 +129,18 @@ export function exportTasksToPdf(projectName: string, tasks: Task[]): void {
   });
   doc.text(`Dibuat: ${today}`, marginX, y);
   y += 14;
-  doc.text(`Total: ${tasks.filter((t) => !t.parentId).length} task utama`, marginX, y);
+  doc.text(
+    `Total: ${tasks.filter((t) => !t.parentId).length} task utama`,
+    marginX,
+    y,
+  );
   y += 20;
   doc.setTextColor(0);
 
   const grouped = groupTasksByStatus(tasks);
-  const statusesWithTasks = STATUS_ORDER.filter((status) => grouped[status].length > 0);
+  const statusesWithTasks = STATUS_ORDER.filter(
+    (status) => grouped[status].length > 0,
+  );
 
   statusesWithTasks.forEach((status, index) => {
     const items = grouped[status];
@@ -140,14 +161,34 @@ export function exportTasksToPdf(projectName: string, tasks: Task[]): void {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
     doc.setTextColor(r, g, b);
-    doc.text(`${STATUS_LABEL[status]} (${items.length})`, marginX + 12, y);
+    doc.text(
+      `${EXPORT_STATUS_LABEL[status]} (${items.length})`,
+      marginX + 12,
+      y,
+    );
     doc.setTextColor(0);
     y += 18;
 
     for (const { parent, children } of items) {
-      y = renderTaskBlock(doc, parent, marginX, y, maxTextWidth, ensureSpace, false);
+      y = renderTaskBlock(
+        doc,
+        parent,
+        marginX,
+        y,
+        maxTextWidth,
+        ensureSpace,
+        false,
+      );
       for (const child of children) {
-        y = renderTaskBlock(doc, child, marginX, y, maxTextWidth, ensureSpace, true);
+        y = renderTaskBlock(
+          doc,
+          child,
+          marginX,
+          y,
+          maxTextWidth,
+          ensureSpace,
+          true,
+        );
       }
     }
   });
@@ -175,7 +216,7 @@ function renderTaskBlock(
   startY: number,
   maxTextWidth: number,
   ensureSpace: (h: number) => void,
-  isChild: boolean
+  isChild: boolean,
 ): number {
   let y = startY;
   const indent = isChild ? 16 : 0;
@@ -189,7 +230,7 @@ function renderTaskBlock(
   const titlePrefix = isChild ? "↳ " : "• ";
   const titleLines: string[] = doc.splitTextToSize(
     `${titlePrefix}${task.title}`,
-    textWidth
+    textWidth,
   );
   doc.text(titleLines, marginX + indent, y);
   y += titleLines.length * 13;
@@ -217,7 +258,10 @@ function renderTaskBlock(
     doc.setFont("helvetica", "italic");
     doc.setFontSize(9);
     doc.setTextColor(110);
-    const descLines: string[] = doc.splitTextToSize(task.description.trim(), textWidth);
+    const descLines: string[] = doc.splitTextToSize(
+      task.description.trim(),
+      textWidth,
+    );
     ensureSpace(descLines.length * 11 + 4);
     doc.text(descLines, marginX + indent, y);
     y += descLines.length * 11 + 2;

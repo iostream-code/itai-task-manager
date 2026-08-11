@@ -19,12 +19,33 @@
 // terurut sendiri berdasarkan status subtask itu sendiri), supaya report
 // tetap terbaca sebagai struktur task -> subtask, bukan daftar acak.
 
-import { Task, Status, STATUS_LABEL } from "@/lib/types";
+import { Task, Status } from "@/lib/types";
+
+// Label status KHUSUS untuk fitur export (Report WhatsApp & PDF) — sengaja
+// dipisah dari STATUS_LABEL di lib/types.ts (yang dipakai tampilan List
+// Tree & Timeline utama) supaya perubahan istilah di sini tidak ikut
+// mengubah label di layar lain yang tidak diminta berubah.
+export const EXPORT_STATUS_LABEL: Record<Status, string> = {
+  TODO: "Pending",
+  IN_PROGRESS: "Sedang Dikerjakan",
+  DONE: "Done",
+};
 
 // Urutan status saat menampilkan report: task yang masih berjalan duluan,
 // baru yang sudah selesai — supaya perhatian pembaca fokus ke yang belum
 // kelar dulu.
 const STATUS_ORDER: Status[] = ["IN_PROGRESS", "TODO", "DONE"];
+
+// Bandingkan due date: yang paling dekat (tanggal terkecil/paling awal)
+// duluan, task tanpa due date sama sekali ditaruh PALING AKHIR dalam
+// kelompoknya. Dipakai sebagai urutan sekunder di dalam satu status
+// (menggantikan urutan alfabetis judul yang dipakai sebelumnya).
+function byDueDate(a: Task, b: Task): number {
+  if (!a.dueDate && !b.dueDate) return a.title.localeCompare(b.title);
+  if (!a.dueDate) return 1; // a tidak punya deadline -> taruh setelah b
+  if (!b.dueDate) return -1; // b tidak punya deadline -> taruh setelah a
+  return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+}
 
 // Format tanggal jadi "24-Juni" (tanggal-NamaBulan, tanpa tahun).
 // Dipakai di dalam bracket *[ ... ]*, jadi tidak perlu prefix teks apa pun
@@ -49,10 +70,11 @@ export type ReportRow = { task: Task; isSubtask: boolean };
 // harusnya tidak pernah terjadi lewat UI normal, tapi dijaga untuk
 // keamanan) ditaruh di akhir sebagai task top-level biasa.
 export function sortTasksForReport(tasks: Task[]): ReportRow[] {
-  function byStatusThenTitle(a: Task, b: Task): number {
-    const statusDiff = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
+  function byStatusThenDueDate(a: Task, b: Task): number {
+    const statusDiff =
+      STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
     if (statusDiff !== 0) return statusDiff;
-    return a.title.localeCompare(b.title);
+    return byDueDate(a, b);
   }
 
   const topLevel = tasks.filter((t) => !t.parentId);
@@ -66,18 +88,21 @@ export function sortTasksForReport(tasks: Task[]): ReportRow[] {
     subtasksByParent.set(t.parentId, list);
   }
   const orphanSubtasks = tasks.filter(
-    (t) => t.parentId && !tasks.some((p) => p.id === t.parentId)
+    (t) => t.parentId && !tasks.some((p) => p.id === t.parentId),
   );
 
   const rows: ReportRow[] = [];
-  for (const parent of [...topLevel].sort(byStatusThenTitle)) {
+  for (const parent of [...topLevel].sort(byStatusThenDueDate)) {
     rows.push({ task: parent, isSubtask: false });
-    const children = (subtasksByParent.get(parent.id) ?? []).sort(byStatusThenTitle);
+    // Sesama subtask satu induk sudah pasti berada di grup status yang sama
+    // di layar (mereka menempel di bawah induknya, bukan dikelompokkan
+    // sendiri) — jadi cukup diurutkan lewat due date saja di sini.
+    const children = (subtasksByParent.get(parent.id) ?? []).sort(byDueDate);
     for (const child of children) {
       rows.push({ task: child, isSubtask: true });
     }
   }
-  for (const orphan of [...orphanSubtasks].sort(byStatusThenTitle)) {
+  for (const orphan of [...orphanSubtasks].sort(byStatusThenDueDate)) {
     rows.push({ task: orphan, isSubtask: false });
   }
 
@@ -96,7 +121,7 @@ export function assigneeLabel(task: Task): string {
 // Kategori disembunyikan kalau task tidak punya kategori.
 // Tanggal disembunyikan kalau task tidak punya due date.
 export function formatTaskMeta(task: Task): string {
-  const metaParts: string[] = [STATUS_LABEL[task.status]];
+  const metaParts: string[] = [EXPORT_STATUS_LABEL[task.status]];
   if (task.category) metaParts.push(task.category.name);
 
   const dueDateText = formatDueDate(task.dueDate);
@@ -153,7 +178,7 @@ export function generateWhatsAppReportText(
   lines.push(today);
   lines.push("");
   lines.push(
-    `Total: ${tasks.length} task (To Do: ${counts.TODO}, In Progress: ${counts.IN_PROGRESS}, Done: ${counts.DONE})`,
+    `Total: ${tasks.length} task (${EXPORT_STATUS_LABEL.TODO}: ${counts.TODO}, ${EXPORT_STATUS_LABEL.IN_PROGRESS}: ${counts.IN_PROGRESS}, ${EXPORT_STATUS_LABEL.DONE}: ${counts.DONE})`,
   );
   lines.push("");
 
